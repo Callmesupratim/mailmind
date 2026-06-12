@@ -1,0 +1,62 @@
+MAILMIND — END USER LICENSE AGREEMENT
+Phoenixtek Solution
+Effective Date: June 2026
+
+PLEASE READ THIS AGREEMENT CAREFULLY BEFORE INSTALLING OR USING MAILMIND.
+BY CLICKING "I AGREE" YOU ACCEPT THESE TERMS IN FULL.
+
+1. GRANT OF LICENSE
+Phoenixtek Solution grants you a personal, non-exclusive, non-transferable license
+to install and use Mailmind on devices you own or control, for your personal or
+internal business use.
+
+2. RESTRICTIONS
+You may not:
+  a) Redistribute, sell, sublicense, or rent this software.
+  b) Reverse engineer, decompile, or disassemble the software.
+  c) Remove or alter any copyright or trademark notices.
+  d) Use the software for any unlawful purpose.
+
+3. YOUR DATA AND PRIVACY
+Mailmind connects to your email accounts and optionally to AI services (Groq,
+OpenAI, Anthropic, Google Gemini, Mistral). Your email content is processed
+locally or sent directly to the AI provider you configure. Phoenixtek Solution
+does not collect, store, or transmit your email data to its own servers.
+
+AI API keys and email credentials are stored encrypted on your device. You are
+responsible for keeping your API keys secure.
+
+4. AI SERVICES
+AI features are provided by third-party services. Their use is subject to the
+respective provider's terms and pricing. Phoenixtek Solution is not responsible
+for costs incurred on third-party AI platforms.
+
+5. DISCLAIMER OF WARRANTIES
+THIS SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED. PHOENIXTEK SOLUTION DOES NOT WARRANT THAT THE SOFTWARE WILL BE
+ERROR-FREE OR UNINTERRUPTED.
+
+6. LIMITATION OF LIABILITY
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, PHOENIXTEK SOLUTION SHALL NOT BE LIABLE
+FOR ANY INDIRECT, INCIDENTAL, SPECIAL, OR CONSEQUENTIAL DAMAGES ARISING FROM
+YOUR USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+7. UPDATES
+Mailmind may check for and install updates automatically. Updates are subject to
+these same terms. You may disable automatic updates in application settings.
+
+8. TERMINATION
+This license is effective until terminated. It terminates automatically if you
+fail to comply with any term. Upon termination you must destroy all copies of
+the software.
+
+9. GOVERNING LAW
+This Agreement is governed by the laws of India. Any disputes shall be subject
+to the exclusive jurisdiction of courts in West Bengal, India.
+
+10. CONTACT
+Phoenixtek Solution
+Email: support@phoenixtek.in
+
+By installing Mailmind you acknowledge that you have read, understood, and agree
+to be bound by these terms.

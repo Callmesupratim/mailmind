@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Environment / secrets — NEVER commit
+.env
+
+# Local database
+data.db
+data.db-shm
+data.db-wal
+
+# Service logs
+logs/
+*.log
+npm-debug.log*
+
+# Electron build output
+dist/
+
+# Bundled Node binary (87 MB — too large for git)
+bin/
+
+# Generated / tool output
+graphify-out/
+
+# Claude Code local session data
+.claude/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/

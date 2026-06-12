@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — Mailmind</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 15px;
+      line-height: 1.7;
+      color: #1a1a1a;
+      background: #ffffff;
+    }
+    .pp {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 3rem 1.5rem 4rem;
+    }
+    h1 {
+      font-size: 28px;
+      font-weight: 600;
+      margin: 0 0 0.25rem;
+      color: #111;
+    }
+    .meta {
+      font-size: 13px;
+      color: #888;
+      margin: 0 0 2.5rem;
+    }
+    h2 {
+      font-size: 17px;
+      font-weight: 600;
+      margin: 2.25rem 0 0.6rem;
+      color: #111;
+      border-top: 1px solid #f0f0f0;
+      padding-top: 1.5rem;
+    }
+    h2:first-of-type { border-top: none; padding-top: 0; }
+    p { margin: 0 0 0.8rem; color: #333; }
+    ul { margin: 0 0 0.8rem; padding-left: 1.5rem; }
+    li { margin-bottom: 0.4rem; color: #333; }
+    .chip {
+      display: inline-block;
+      font-size: 12px;
+      font-family: monospace;
+      background: #f4f4f4;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      padding: 1px 8px;
+      margin: 0 2px;
+      color: #555;
+    }
+    .notice {
+      background: #f0f6ff;
+      border-left: 3px solid #4a90d9;
+      padding: 0.85rem 1.1rem;
+      margin: 1rem 0;
+      font-size: 14px;
+      color: #444;
+      border-radius: 0 6px 6px 0;
+    }
+    code {
+      font-family: monospace;
+      font-size: 13px;
+      background: #f4f4f4;
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+    a { color: #1a73e8; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    @media (max-width: 600px) {
+      .pp { padding: 2rem 1.25rem 3rem; }
+      h1 { font-size: 22px; }
+    }
+  </style>
+</head>
+<body>
+<div class="pp">
+  <h1>Privacy Policy</h1>
+  <p class="meta">Mailmind &nbsp;·&nbsp; Last updated: June 10, 2026</p>
+
+  <h2>Overview</h2>
+  <p>Mailmind is a desktop email client that connects to your email accounts (Gmail, Microsoft Outlook, Zoho, Yahoo, or any IMAP mailbox) and optionally uses AI services to analyse email threads and draft replies. This policy explains what data the app accesses, how it is used, and how it is protected.</p>
+  <p>Mailmind runs entirely on your computer. Your email data is never sent to Mailmind servers — there are none. All data stays on your machine or travels directly between your device and the email and AI providers you choose.</p>
+
+  <h2>Data the app accesses</h2>
+  <p>When you connect an email account, Mailmind accesses:</p>
+  <ul>
+    <li>Your email address (used to label the account)</li>
+    <li>Email message headers, subjects, senders, dates, and body content</li>
+    <li>Attachment metadata and content (when you open a message)</li>
+    <li>Folder and label structure</li>
+    <li>Read/unread status and starred/flagged status</li>
+  </ul>
+  <p>Mailmind uses Gmail API scopes <span class="chip">gmail.modify</span> and <span class="chip">gmail.compose</span> to read your messages, archive/trash/star threads, mark messages as read, create drafts, and send replies — all in direct response to actions you take in the app.</p>
+
+  <h2>How your data is used</h2>
+  <p>Email content is used solely to:</p>
+  <ul>
+    <li>Display your messages in the Mailmind interface</li>
+    <li>Execute actions you request (archive, reply, star, trash, send)</li>
+    <li>Generate AI analysis or draft replies when you explicitly trigger an AI feature</li>
+  </ul>
+  <p>Your email data is <strong>never</strong> used for advertising, profiling, training AI models, or shared with any third party except the AI provider you select when you trigger an AI feature.</p>
+
+  <h2>Data storage</h2>
+  <p>Mailmind stores the following data locally on your computer:</p>
+  <ul>
+    <li>OAuth access tokens and refresh tokens for connected accounts — encrypted with AES-256-GCM before being written to a local SQLite database</li>
+    <li>IMAP/SMTP credentials (for non-OAuth accounts) — also encrypted at rest</li>
+    <li>AI analysis results — cached locally to avoid repeated API calls for the same thread</li>
+    <li>Your AI provider preferences and API keys — encrypted at rest</li>
+  </ul>
+  <p>No email messages or attachments are stored locally beyond what is held in memory while the app is open.</p>
+
+  <h2>AI features and third-party providers</h2>
+  <p>AI analysis and reply drafting are optional. When you use them, the content of the email thread you are viewing is sent to the AI provider you have selected in Settings. Supported providers:</p>
+  <ul>
+    <li>Groq (default) — <a href="https://groq.com/privacy-policy/" target="_blank" rel="noopener">groq.com/privacy-policy</a></li>
+    <li>OpenAI — <a href="https://openai.com/policies/privacy-policy" target="_blank" rel="noopener">openai.com/policies/privacy-policy</a></li>
+    <li>Anthropic — <a href="https://www.anthropic.com/privacy" target="_blank" rel="noopener">anthropic.com/privacy</a></li>
+    <li>Google Gemini — <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">policies.google.com/privacy</a></li>
+    <li>Mistral — <a href="https://mistral.ai/privacy-policy/" target="_blank" rel="noopener">mistral.ai/privacy-policy</a></li>
+  </ul>
+  <p>You supply your own API keys for these providers. Mailmind does not proxy or record API calls.</p>
+
+  <div class="notice">
+    <strong>Gmail API disclosure:</strong> Mailmind's use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>, including the Limited Use requirements. Data obtained via the Gmail API is used only within the app to display and manage your emails and is not transferred to any party other than the AI provider you explicitly select.
+  </div>
+
+  <h2>Google OAuth scopes — why they are needed</h2>
+  <ul>
+    <li><span class="chip">gmail.modify</span> — required to archive, star, trash, and mark messages as read/unread. These are core email management actions initiated by you.</li>
+    <li><span class="chip">gmail.compose</span> — required to create drafts and send replies from within the app.</li>
+    <li><span class="chip">userinfo.email</span> — required to display your email address in the account switcher.</li>
+  </ul>
+
+  <h2>Data sharing</h2>
+  <p>Mailmind does not sell, rent, or share your personal data or email content with any third party, except:</p>
+  <ul>
+    <li>Your chosen email provider (Gmail, Outlook, etc.) — to retrieve and send mail, as directed by you</li>
+    <li>Your chosen AI provider — only when you explicitly trigger an AI feature, and only with the thread you have open at that moment</li>
+  </ul>
+
+  <h2>Data deletion and account removal</h2>
+  <p>You can remove any connected account at any time in Settings → Manage accounts. This immediately deletes all stored tokens and credentials for that account from the local database. Revoking Mailmind's access from your Google Account security page (<a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a>) also invalidates any stored tokens.</p>
+  <p>Uninstalling Mailmind removes the application. To also delete the local database, delete the <code>data.db</code> file from the installation folder.</p>
+
+  <h2>Children's privacy</h2>
+  <p>Mailmind is not directed at children under 13 and does not knowingly collect data from them.</p>
+
+  <h2>Changes to this policy</h2>
+  <p>If this policy is updated, the new version will be distributed with the next app release and the "Last updated" date above will change. Continued use of the app after an update constitutes acceptance of the revised policy.</p>
+
+  <h2>Contact</h2>
+  <p>For questions about this privacy policy or data practices, email:<br>
+  <a href="mailto:subhasupratim.mondal@gmail.com">subhasupratim.mondal@gmail.com</a></p>
+</div>
+</body>
+</html>
