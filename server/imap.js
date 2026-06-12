@@ -31,6 +31,10 @@ function makeClient(creds) {
       : { user: creds.user, pass: creds.pass },
     logger: false,
     emitLogs: false,
+    // Defaults are 90s connect / no-op socket — a hung server stalls email loading
+    connectionTimeout: 20000,  // TCP connect
+    greetingTimeout:   10000,  // server greeting
+    socketTimeout:     60000,  // idle mid-command
   });
   // Prevent unhandled 'error' event from crashing the process
   client.on("error", () => {});

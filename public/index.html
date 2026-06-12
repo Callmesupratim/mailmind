@@ -1794,7 +1794,10 @@ async function loadEmails(append=false, silent=false) {
   try {
     const p = new URLSearchParams({q: buildQ()});
     if (append && S.nextPageToken) p.set('pageToken', S.nextPageToken);
-    const data = await fetch('/api/emails?' + p).then(r => r.json());
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 45000);
+    const data = await fetch('/api/emails?' + p, { signal: ctrl.signal })
+      .then(r => r.json()).finally(() => clearTimeout(tid));
     if (data.error) throw new Error(data.error);
     if (append) {
       // Dedupe by thread id: messages.list pagination can split one thread across page
@@ -1838,7 +1841,8 @@ async function loadEmails(append=false, silent=false) {
     renderList();
     updateDigest();
   } catch(e) {
-    if (!silent) $('email-list').innerHTML = `<div class="el-empty">⚠ ${esc(e.message)}</div>`;
+    const msg = e.name === 'AbortError' ? 'Request timed out — check your connection and retry' : e.message;
+    if (!silent) $('email-list').innerHTML = `<div class="el-empty">⚠ ${esc(msg)}</div>`;
   } finally {
     _loadingMore = false;
   }
@@ -4291,13 +4295,19 @@ let _lastTopId = null;
 let _scrollObserver = null;
 let _loadingMore = false;
 
+let _pollInFlight = false;
 async function pollForNewMail() {
   if (document.hidden) return;                       // tab not visible
   if (!LIVE_FOLDERS.has(S.folder || '')) return;    // in sent/spam/bin etc.
   if (!S.accounts?.length) return;                  // not logged in
+  if (_pollInFlight) return;                        // a hung poll must not stack new ones
+  _pollInFlight = true;
   try {
     const q = buildQ() || 'in:inbox';
-    const data = await fetch('/api/emails?q=' + encodeURIComponent(q) + '&maxResults=5').then(r => r.json());
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 30000);
+    const data = await fetch('/api/emails?q=' + encodeURIComponent(q) + '&maxResults=5', { signal: ctrl.signal })
+      .then(r => r.json()).finally(() => clearTimeout(tid));
     if (data.error) return;
     const newest = data.emails?.[0];
     if (!newest) return;
@@ -4315,6 +4325,7 @@ async function pollForNewMail() {
       }
     }
   } catch {}
+  finally { _pollInFlight = false; }
 }
 
 setInterval(pollForNewMail, 60_000);   // every 60 seconds

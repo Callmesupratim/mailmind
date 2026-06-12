@@ -37,6 +37,8 @@ function graphRequest(token, method, path, body, extraHeaders) {
         } catch (e) { reject(new Error("Graph parse error: " + data.slice(0, 300))); }
       });
     });
+    // Without a timeout a hung Graph request blocks email loading forever
+    req.setTimeout(30000, () => req.destroy(new Error("Microsoft Graph request timed out (30s)")));
     req.on("error", reject);
     if (bodyStr) req.write(bodyStr);
     req.end();
@@ -98,8 +100,9 @@ function buildListPath(folder, skip, filter, search) {
   //   • $search and $orderby cannot be combined
   //   • $filter and $orderby together cause "restriction too complex" on Exchange — omit orderby when filtering
   // Free-text search uses /me/messages (all folders) — folder-scoped path would miss Sent, Archive etc.
+  // $search does NOT support $skip (Graph rejects with SearchWithSkip) — single page only.
   const base = search
-    ? `/me/messages?$top=${PAGE_SIZE}&$skip=${skip}&$select=${sel}`
+    ? `/me/messages?$top=${PAGE_SIZE}&$select=${sel}`
     : `/me/mailFolders/${folder}/messages?$top=${PAGE_SIZE}&$skip=${skip}&$select=${sel}`;
   let path = base;
   if (search) {
@@ -171,7 +174,8 @@ module.exports = {
       categories: m.categories || [],
     }));
 
-    const hasMore = !!data["@odata.nextLink"];
+    // No paging for search results — $skip is unsupported with $search
+    const hasMore = !search && !!data["@odata.nextLink"];
     return { emails, nextPageToken: hasMore ? String(skip + PAGE_SIZE) : null };
   },
 
@@ -315,7 +319,7 @@ module.exports = {
   },
 
   // ── Save draft ─────────────────────────────────────────────────────────────
-  async saveDraft(token, { to, subject, body }) {
+  async saveDraft(token, { to, subject, body, html }) {
     const draft = await gPost(token, "/me/messages", {
       subject: subject || "(no subject)",
       body: html ? { contentType: "HTML", content: html } : { contentType: "Text", content: body || "" },

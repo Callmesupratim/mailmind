@@ -14,6 +14,17 @@ function log(msg) {
 process.on('uncaughtException',  e => log('CRASH: '  + (e.stack || e.message || String(e))));
 process.on('unhandledRejection', e => log('REJECT: ' + (e && (e.stack || e.message) ? (e.stack || e.message) : String(e))));
 
+// ── Single instance lock ────────────────────────────────────────────────────────
+// Without this, launching the app while it's hidden in the tray spawns a second
+// instance whose server dies with EADDRINUSE — both windows then share ONE server,
+// and quitting either instance kills it, leaving the other window dead/stuck.
+if (!app.requestSingleInstanceLock()) {
+  app.exit(0);
+}
+app.on('second-instance', () => {
+  if (win && !win.isDestroyed()) { win.show(); win.focus(); }
+});
+
 // ── Wait for port with timeout ──────────────────────────────────────────────────
 function waitForPort(port, timeoutMs = 20000) {
   return new Promise((resolve, reject) => {
@@ -25,6 +36,47 @@ function waitForPort(port, timeoutMs = 20000) {
       c.once('error',   () => setTimeout(check, 200));
     };
     check();
+  });
+}
+
+// ── Stale server detection ──────────────────────────────────────────────────────
+// After a crash or auto-update, an orphaned server from a previous run can still
+// hold port 3000. If its version matches ours, reuse it; otherwise kill it so a
+// fresh server of the current version can bind.
+function isPortBusy(port) {
+  return new Promise(resolve => {
+    const c = net.createConnection(port, '127.0.0.1');
+    c.once('connect', () => { c.destroy(); resolve(true); });
+    c.once('error',   () => resolve(false));
+  });
+}
+
+function getExistingServerVersion(port) {
+  return new Promise(resolve => {
+    const req = require('http').get({ host: '127.0.0.1', port, path: '/api/version', timeout: 3000 }, res => {
+      let d = '';
+      res.on('data', c => d += c);
+      res.on('end', () => { try { resolve(JSON.parse(d).version || null); } catch { resolve(null); } });
+    });
+    req.on('error',   () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+  });
+}
+
+function killStaleServer(port) {
+  return new Promise(resolve => {
+    const { exec } = require('child_process');
+    exec('netstat -ano -p tcp', (err, out) => {
+      if (err || !out) return resolve(false);
+      const pids = new Set();
+      for (const line of out.split('\n')) {
+        const m = line.match(new RegExp('^\\s*TCP\\s+\\S+:' + port + '\\s+\\S+\\s+LISTENING\\s+(\\d+)'));
+        if (m && +m[1] !== process.pid) pids.add(m[1]);
+      }
+      if (!pids.size) return resolve(false);
+      let done = 0;
+      pids.forEach(pid => exec('taskkill /PID ' + pid + ' /F', () => { if (++done === pids.size) resolve(true); }));
+    });
   });
 }
 
@@ -56,13 +108,18 @@ let userData      = '';
 let syncSettings  = { ...DEFAULT_SYNC };
 
 // ── Background poll (runs from main process, unaffected by window visibility) ──
+let pollInFlight = false;
 async function doBackgroundPoll() {
   if (!win || win.isDestroyed()) return;
+  if (pollInFlight) return;   // a hung poll must not stack new ones every interval
+  pollInFlight = true;
   try {
     const result = await win.webContents.executeJavaScript(`
       (async () => {
         try {
-          const r = await fetch('/api/emails?q=in:inbox&maxResults=5', { credentials: 'include' });
+          const ctrl = new AbortController();
+          setTimeout(() => ctrl.abort(), 30000);
+          const r = await fetch('/api/emails?q=in:inbox&maxResults=5', { credentials: 'include', signal: ctrl.signal });
           if (!r.ok) return '[]';
           const d = await r.json();
           return JSON.stringify(d.emails || []);
@@ -101,6 +158,8 @@ async function doBackgroundPoll() {
     }
   } catch (e) {
     log('background poll error: ' + e.message);
+  } finally {
+    pollInFlight = false;
   }
 }
 
@@ -203,21 +262,39 @@ app.whenReady().then(async () => {
   require('dotenv').config({ path: envPath });
 
   const serverScript = path.join(appDir, 'server', 'index.js');
-  log('spawning: ' + nodeBin + ' ' + serverScript);
 
-  serverProcess = spawn(nodeBin, [serverScript], {
-    env: {
-      ...process.env,
-      DB_PATH: dbPath,
-      MAILMIND_SECRET: machineSecret,
-      SESSION_SECRET: machineSecret,
-    },
-    cwd: appDir,
-  });
+  // Handle an existing listener on port 3000: reuse if it's our own version
+  // (e.g. NSSM service or a same-version orphan), kill it if it's a stale orphan
+  // from a crash or pre-update run.
+  let needSpawn = true;
+  if (await isPortBusy(3000)) {
+    const v = await getExistingServerVersion(3000);
+    if (v === app.getVersion()) {
+      log('reusing existing server v' + v + ' on port 3000');
+      needSpawn = false;
+    } else {
+      log('stale server (v' + v + ') on port 3000 — killing it');
+      await killStaleServer(3000);
+      await new Promise(r => setTimeout(r, 800));
+    }
+  }
 
-  serverProcess.stdout?.on('data', d => log('srv: '     + d.toString().trim()));
-  serverProcess.stderr?.on('data', d => log('srv ERR: ' + d.toString().trim()));
-  serverProcess.on('exit', code => log('server exited: ' + code));
+  if (needSpawn) {
+    log('spawning: ' + nodeBin + ' ' + serverScript);
+    serverProcess = spawn(nodeBin, [serverScript], {
+      env: {
+        ...process.env,
+        DB_PATH: dbPath,
+        MAILMIND_SECRET: machineSecret,
+        SESSION_SECRET: machineSecret,
+      },
+      cwd: appDir,
+    });
+
+    serverProcess.stdout?.on('data', d => log('srv: '     + d.toString().trim()));
+    serverProcess.stderr?.on('data', d => log('srv ERR: ' + d.toString().trim()));
+    serverProcess.on('exit', code => log('server exited: ' + code));
+  }
 
   // ── Window ────────────────────────────────────────────────────────────────────
   win = new BrowserWindow({
@@ -332,4 +409,10 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => {
   // Do nothing — tray keeps the app alive.
   // Quit only via tray menu → "Quit Mailmind".
+});
+
+// Fires on quitAndInstall (auto-update) and any other quit path — make sure the
+// spawned server never outlives the app (orphans cause EADDRINUSE on relaunch).
+app.on('before-quit', () => {
+  try { if (serverProcess) serverProcess.kill(); } catch {}
 });
