@@ -1355,6 +1355,21 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
             <button class="st-danger-btn" id="st-clear-all">Reset everything</button>
           </div>
         </div>
+
+        <!-- App update — only shown inside Electron desktop app -->
+        <div id="st-update-section" style="display:none">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--t3);padding:18px 0 6px;border-top:1px solid var(--bc);margin-top:4px">App Update</div>
+          <div class="st-row" style="border-bottom:none">
+            <div class="st-info">
+              <div class="st-label">Check for updates</div>
+              <div class="st-desc" id="st-update-status">Current version: <span id="st-update-ver"></span></div>
+            </div>
+            <div class="st-control" style="gap:8px">
+              <button class="st-ok-btn" id="st-update-btn">Check Now</button>
+              <button class="st-ok-btn" id="st-install-btn" style="display:none;background:var(--accent);color:var(--ab);border-color:var(--accent)">Restart &amp; Install</button>
+            </div>
+          </div>
+        </div>
       </div>
 
     </div><!-- /settings-content -->
@@ -4043,6 +4058,47 @@ $('compose-btn').onclick = () => openCompose();
   };
 
   // ── Keyboard / overlay close ──────────────────────────────────────────────────
+  // ── App update (Electron desktop only) ───────────────────────────────────────
+  if (window.electronAPI) {
+    document.getElementById('st-update-section').style.display = '';
+
+    // Show current version in the status line
+    fetch('/api/version').then(r => r.json()).then(d => {
+      const el = document.getElementById('st-update-ver');
+      if (el) el.textContent = 'v' + d.version;
+    }).catch(() => {});
+
+    const updateBtn  = document.getElementById('st-update-btn');
+    const installBtn = document.getElementById('st-install-btn');
+    const statusEl   = document.getElementById('st-update-status');
+
+    function setUpdateStatus(text, showInstall) {
+      statusEl.textContent = text;
+      installBtn.style.display = showInstall ? '' : 'none';
+      updateBtn.style.display  = showInstall ? 'none' : '';
+    }
+
+    // Listen for status events pushed from main process
+    window.electronAPI.onUpdateStatus(({ status, message }) => {
+      switch (status) {
+        case 'checking':   setUpdateStatus('Checking for updates…', false); updateBtn.disabled = true;  break;
+        case 'available':  setUpdateStatus(message, false); updateBtn.disabled = true;  break;
+        case 'progress':   setUpdateStatus(message, false); updateBtn.disabled = true;  break;
+        case 'latest':     setUpdateStatus('You\'re on the latest version.', false); updateBtn.disabled = false; break;
+        case 'downloaded': setUpdateStatus(message, true);  updateBtn.disabled = true;  break;
+        case 'error':      setUpdateStatus('Error: ' + message, false); updateBtn.disabled = false; break;
+      }
+    });
+
+    updateBtn.onclick = () => {
+      updateBtn.disabled = true;
+      setUpdateStatus('Checking for updates…', false);
+      window.electronAPI.checkForUpdates();
+    };
+
+    installBtn.onclick = () => window.electronAPI.installUpdate();
+  }
+
   // Expose to global scope so the keydown handler (outside this IIFE) can call them
   window.openSettings    = openSettings;
   window.discardSettings = discardSettings;

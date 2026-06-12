@@ -287,15 +287,39 @@ app.whenReady().then(async () => {
     startSyncTimer();
   });
 
-  // ── Auto-updater (packaged builds only) ───────────────────────────────────────
+  // ── Auto-updater ──────────────────────────────────────────────────────────────
+  function sendUpdateStatus(status, message) {
+    if (win && !win.isDestroyed()) win.webContents.send('update-status', { status, message });
+    log('updater [' + status + ']: ' + (message || ''));
+  }
+
   if (app.isPackaged) {
     try {
       const { autoUpdater } = require('electron-updater');
       autoUpdater.logger = { info: m => log('updater: ' + m), warn: m => log('updater WARN: ' + m), error: m => log('updater ERR: ' + m) };
-      autoUpdater.checkForUpdatesAndNotify();
+      autoUpdater.on('checking-for-update',  ()  => sendUpdateStatus('checking',   'Checking for updates…'));
+      autoUpdater.on('update-available',     (i) => sendUpdateStatus('available',  'Update v' + i.version + ' found — downloading…'));
+      autoUpdater.on('update-not-available', ()  => sendUpdateStatus('latest',     'You\'re on the latest version.'));
+      autoUpdater.on('download-progress',    (p) => sendUpdateStatus('progress',   'Downloading… ' + Math.round(p.percent) + '%'));
+      autoUpdater.on('update-downloaded',    (i) => sendUpdateStatus('downloaded', 'Update v' + i.version + ' ready — click Restart to install.'));
+      autoUpdater.on('error',               (e)  => sendUpdateStatus('error',      'Update error: ' + (e.message || String(e))));
+
+      ipcMain.handle('check-for-updates', () => {
+        autoUpdater.checkForUpdates().catch(e => sendUpdateStatus('error', e.message));
+      });
+      ipcMain.on('install-update', () => {
+        autoUpdater.quitAndInstall();
+      });
+
+      // Silent background check on launch
+      autoUpdater.checkForUpdates().catch(e => log('auto-update check: ' + e.message));
     } catch (e) {
       log('Auto-updater error: ' + e.message);
+      ipcMain.handle('check-for-updates', () => sendUpdateStatus('error', 'Updater unavailable.'));
     }
+  } else {
+    // Dev mode — manual check not available
+    ipcMain.handle('check-for-updates', () => sendUpdateStatus('error', 'Auto-update only works in the installed app.'));
   }
 
   // Open all target="_blank" links in the system browser
