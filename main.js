@@ -21,7 +21,10 @@ process.on('unhandledRejection', e => log('REJECT: ' + (e && (e.stack || e.messa
 if (!app.requestSingleInstanceLock()) {
   app.exit(0);
 }
-app.on('second-instance', () => {
+app.on('second-instance', (_e, argv) => {
+  // A redundant login relaunch may itself carry --hidden; honour it (don't pop the
+  // window the user deliberately kept hidden in the tray).
+  if (Array.isArray(argv) && argv.includes('--hidden')) return;
   if (win && !win.isDestroyed()) { win.show(); win.focus(); }
 });
 
@@ -81,7 +84,35 @@ function killStaleServer(port) {
 }
 
 // ── Sync settings (background tray polling) ───────────────────────────────────
-const DEFAULT_SYNC = { background: true, intervalMin: 15, notifications: true, tone: 'builtin:mixkit-magic-notification-ring-2344.wav' };
+const DEFAULT_SYNC = { background: true, intervalMin: 15, notifications: true, tone: 'builtin:mixkit-magic-notification-ring-2344.wav', launchOnStartup: false };
+
+// ── Launch-on-Windows-startup ─────────────────────────────────────────────────
+// Registers/unregisters the app in the Windows "Run" key via Electron. Launched
+// copies get a --hidden flag so login starts straight into the tray (no window
+// popping up on every boot), matching how Slack/Discord behave.
+// The Run-key entry is written WITH these exact path+args. getLoginItemSettings MUST
+// be queried with the SAME options or Windows reports openAtLogin:false — the stored
+// command line carries --hidden and won't match a bare query. Keep them in one place
+// so the set and get calls can never drift.
+const LOGIN_ITEM_OPTS = { path: process.execPath, args: ['--hidden'] };
+
+function applyLoginItemSettings(enabled) {
+  // Only touch the registry for the installed app — in dev (`npm run electron`)
+  // process.execPath is the electron prebuilt binary, which we must not register.
+  if (!app.isPackaged) return;
+  try {
+    app.setLoginItemSettings({ ...LOGIN_ITEM_OPTS, openAtLogin: !!enabled, openAsHidden: true });
+  } catch (e) {
+    log('setLoginItemSettings error: ' + e.message);
+  }
+}
+
+// Reads the REAL Windows startup state using the same identity we registered with.
+function isLaunchOnStartupEnabled() {
+  if (!app.isPackaged) return false;
+  try { return !!app.getLoginItemSettings({ ...LOGIN_ITEM_OPTS }).openAtLogin; }
+  catch { return false; }
+}
 
 function loadSyncSettings(userData) {
   try {
@@ -176,11 +207,16 @@ ipcMain.on('set-sync-settings', (_, s) => {
   syncSettings = { ...DEFAULT_SYNC, ...s };
   saveSyncSettings(userData, syncSettings);
   startSyncTimer();
+  applyLoginItemSettings(syncSettings.launchOnStartup);
   updateTrayMenu();
   log('sync settings updated: ' + JSON.stringify(syncSettings));
 });
 
 ipcMain.handle('get-sync-settings', () => syncSettings);
+
+// Lets the renderer know if it's the installed app (so dev-only no-op controls,
+// e.g. launch-on-startup, can be disabled honestly).
+ipcMain.handle('app-is-packaged', () => app.isPackaged);
 
 ipcMain.handle('pick-tone-file', async () => {
   const result = await dialog.showOpenDialog(win, {
@@ -241,6 +277,17 @@ app.whenReady().then(async () => {
   // Load sync settings early so tray/window-close behaviour is correct from start
   syncSettings = loadSyncSettings(userData);
 
+  // Reflect the real Windows startup state (the user may have removed it via Task
+  // Manager → Startup or Settings → Apps → Startup); the in-app toggle should match
+  // reality rather than blindly re-enabling it on every boot.
+  if (app.isPackaged) {
+    const realOpenAtLogin = isLaunchOnStartupEnabled();
+    if (realOpenAtLogin !== syncSettings.launchOnStartup) {
+      syncSettings.launchOnStartup = realOpenAtLogin;
+      saveSyncSettings(userData, syncSettings);
+    }
+  }
+
   // ── Per-machine encryption secret ────────────────────────────────────────────
   const secretPath = path.join(userData, 'secret.key');
   let machineSecret;
@@ -297,10 +344,23 @@ app.whenReady().then(async () => {
   }
 
   // ── Window ────────────────────────────────────────────────────────────────────
+  // Window/taskbar icon — first non-empty candidate wins
+  let winIcon;
+  for (const c of [path.join(appDir, 'icon.png'), path.join(appDir, 'public', 'mailmind-icon.png')]) {
+    const img = nativeImage.createFromPath(c);
+    if (img && !img.isEmpty()) { winIcon = img; break; }
+  }
+
+  // When Windows launches us at login we pass --hidden so the app boots straight
+  // into the tray (silent background sync) instead of popping a window on every boot.
+  const startedHidden = process.argv.includes('--hidden');
+
   win = new BrowserWindow({
     width: 1400, height: 900,
     minWidth: 900, minHeight: 600,
     title: 'Mailmind',
+    show: !startedHidden,
+    ...(winIcon ? { icon: winIcon } : {}),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -308,10 +368,16 @@ app.whenReady().then(async () => {
     },
   });
   win.setMenuBarVisibility(false);
+  if (startedHidden) log('launched hidden at login — starting in tray');
 
-  // Hide to tray instead of quitting (when background sync is enabled)
+  // Hide to tray instead of quitting while the app should keep running in the tray —
+  // i.e. when background sync OR launch-on-startup is on. Otherwise let the window
+  // close and quit cleanly (window-all-closed below). We must never destroy the only
+  // window while the process stays alive, or the tray/menu recovery paths would call
+  // show() on a dead window and the app becomes unrecoverable.
   win.on('close', e => {
-    if (syncSettings.background) {
+    const persist = syncSettings.background || syncSettings.launchOnStartup;
+    if (persist) {
       e.preventDefault();
       win.hide();
       if (!trayHintShown) {
@@ -328,15 +394,31 @@ app.whenReady().then(async () => {
 
   // ── Tray icon ─────────────────────────────────────────────────────────────────
   try {
-    const iconPath = path.join(appDir, 'icon.png');
-    const icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
+    // Try the root icon first, then the always-bundled public copy as a fallback.
+    // If icon.png isn't packaged, createFromPath returns an EMPTY image and the tray
+    // icon shows up blank/invisible — so we verify isEmpty() and fall back.
+    const candidates = [
+      path.join(appDir, 'icon.png'),
+      path.join(appDir, 'public', 'mailmind-icon.png'),
+      path.join(appDir, 'public', 'icon.png'),
+    ];
+    let icon = null;
+    for (const c of candidates) {
+      const img = nativeImage.createFromPath(c);
+      if (img && !img.isEmpty()) { icon = img.resize({ width: 16, height: 16 }); break; }
+    }
+    if (!icon) throw new Error('no usable tray icon found in: ' + candidates.join(', '));
     tray = new Tray(icon);
     tray.setToolTip('Mailmind');
     tray.on('double-click', () => { win.show(); win.focus(); });
+    tray.on('click', () => { win.show(); win.focus(); });
     updateTrayMenu();
     log('tray created');
   } catch (e) {
     log('tray error: ' + e.message);
+    // If we started hidden at login and the tray also failed, we'd be a headless
+    // process with no way to surface a window — fall back to showing it.
+    if (startedHidden && win && !win.isDestroyed()) { win.show(); win.focus(); }
   }
 
   // Show the loading splash immediately
@@ -407,8 +489,11 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  // Do nothing — tray keeps the app alive.
-  // Quit only via tray menu → "Quit Mailmind".
+  // If the app isn't meant to persist in the tray (background sync and launch-on-
+  // startup both off), quit cleanly when the window closes. Otherwise the tray keeps
+  // the app alive — quit via tray menu → "Quit Mailmind".
+  const persist = syncSettings.background || syncSettings.launchOnStartup;
+  if (!persist) app.quit();
 });
 
 // Fires on quitAndInstall (auto-update) and any other quit path — make sure the

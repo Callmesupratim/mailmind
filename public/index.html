@@ -136,6 +136,7 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .el-div{height:1px;background:var(--bc)}
 .el-scroll{flex:1;overflow-y:auto}
 .el-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:200px;color:var(--t3);gap:8px;font-size:13px}
+.el-note{display:flex;align-items:center;gap:6px;padding:7px 14px;font-size:11.5px;color:var(--t3);background:var(--p2);border-bottom:1px solid var(--bc)}
 .el-loading{display:flex;align-items:center;justify-content:center;height:80px;color:var(--t3);font-size:13px;gap:8px}
 .el-sentinel{display:flex;align-items:center;justify-content:center;padding:14px 0;gap:7px;color:var(--t3);font-size:11.5px}
 .el-sentinel .spinner{width:14px;height:14px;border-width:2px}
@@ -1251,6 +1252,13 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
               <button class="st-tone-btn st-tone-browse-btn" id="st-tone-browse" title="Add custom .wav or .mp3">+ Custom</button>
             </div>
           </div>
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--t3);padding:18px 0 6px;border-top:1px solid var(--bc);margin-top:4px">Startup</div>
+          <div class="st-row">
+            <div class="st-info"><div class="st-label">Start with Windows</div><div class="st-desc">Launch Mailmind automatically when you sign in to Windows, hidden in the system tray</div></div>
+            <div class="st-control">
+              <label class="st-toggle"><input type="checkbox" id="st-startup-toggle"><div class="st-toggle-track"></div><div class="st-toggle-thumb"></div></label>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -2019,13 +2027,20 @@ function renderList() {
   const allEmails = S.emails || [];
 
   // Client-side category filter (skip when searching — show all matches)
-  const visible = S.searchQ
-    ? allEmails
-    : S.category === 'priority'
-      ? allEmails.filter(e => { try { return isPriority(e); } catch { return true; } })
-      : S.category === 'all'
-        ? allEmails
-        : allEmails.filter(e => { try { return categorize(e) === S.category; } catch(err) { return false; } });
+  let visible, priorityFellBack = false;
+  if (S.searchQ) {
+    visible = allEmails;
+  } else if (S.category === 'priority') {
+    visible = allEmails.filter(e => { try { return isPriority(e); } catch { return true; } });
+    // Some mailboxes (e.g. an all-read Outlook/Zoho inbox) have no unread/important
+    // mail, so Priority would be blank and look broken. Fall back to showing all mail
+    // with a note instead of a confusing empty tab.
+    if (!visible.length && allEmails.length) { visible = allEmails; priorityFellBack = true; }
+  } else if (S.category === 'all') {
+    visible = allEmails;
+  } else {
+    visible = allEmails.filter(e => { try { return categorize(e) === S.category; } catch(err) { return false; } });
+  }
 
   // Refresh tab counts
   try { updateCatCounts(allEmails); } catch(e) {}
@@ -2097,6 +2112,10 @@ function renderList() {
   });
 
   let html = rows.join('');
+  if (priorityFellBack) {
+    html = '<div class="el-note"><span>&#9432;</span> No priority mail — showing all '
+      + visible.length + ' message' + (visible.length === 1 ? '' : 's') + '</div>' + html;
+  }
   if (S.nextPageToken) {
     html += '<div class="el-sentinel" id="el-sentinel"><div class="spinner"></div> Loading older…</div>';
   }
@@ -3638,6 +3657,16 @@ $('compose-btn').onclick = () => openCompose();
     document.getElementById('st-aiauto-toggle').checked   = ls('mm-ai-auto', '1') !== '0';
     document.getElementById('st-priority-toggle').checked = ls('mm-priority', '1') !== '0';
     document.getElementById('st-poll-select').value       = ls('mm-poll-interval', '60');
+    // Re-sync Electron-only toggles from the last known sync settings so Discard /
+    // reopen reflect the real state rather than stale DOM from an unsaved change.
+    if (_curSync) {
+      const _bg = document.getElementById('st-bg-toggle');
+      const _bgi = document.getElementById('st-bg-interval');
+      const _su = document.getElementById('st-startup-toggle');
+      if (_bg)  _bg.checked = !!_curSync.background;
+      if (_bgi) _bgi.value  = String(_curSync.intervalMin || 15);
+      if (_su)  _su.checked = !!_curSync.launchOnStartup;
+    }
     // Sync AI provider/model/key
     const curProv = ls('mm-ai-provider', 'groq');
     document.getElementById('st-provider-select').value = curProv;
@@ -3724,17 +3753,21 @@ $('compose-btn').onclick = () => openCompose();
     applyChips(this.checked); refreshChipStyle();
   };
 
-  // Notifications
+  // Notifications — this toggle is the ONLY place the persisted notifications
+  // preference is mutated (pushSyncSettings otherwise preserves it).
   document.getElementById('st-notif-toggle').onchange = function() {
+    const apply = on => {
+      lsSet('mm-notif-enabled', on ? '1' : '0');
+      if (_curSync) _curSync.notifications = on;
+      window._pushSyncSettings?.();
+    };
     if (this.checked) {
       Notification?.requestPermission().then(p => {
         this.checked = p === 'granted';
-        lsSet('mm-notif-enabled', p === 'granted' ? '1' : '0');
-        window._pushSyncSettings?.();
+        apply(p === 'granted');
       });
     } else {
-      lsSet('mm-notif-enabled', '0');
-      window._pushSyncSettings?.();
+      apply(false);
     }
   };
 
@@ -3751,6 +3784,18 @@ $('compose-btn').onclick = () => openCompose();
   // Background sync (Electron desktop only)
   if (window.electronAPI) {
     document.getElementById('st-bg-section').style.display = '';
+    // Launch-on-startup only does anything in the installed app (registering the dev
+    // electron binary would be wrong) — disable the toggle + note it when running in dev.
+    window.electronAPI.isPackaged?.().then(packaged => {
+      if (!packaged) {
+        const su = document.getElementById('st-startup-toggle');
+        if (su) {
+          su.disabled = true;
+          const desc = su.closest('.st-row')?.querySelector('.st-desc');
+          if (desc) desc.insertAdjacentText('beforeend', ' — available in the installed app only');
+        }
+      }
+    }).catch(() => {});
     // Load current settings from main process
     function setToneSelect(tone) {
       const sel = document.getElementById('st-tone-select');
@@ -3774,23 +3819,31 @@ $('compose-btn').onclick = () => openCompose();
       _curSync = {...s};
       document.getElementById('st-bg-toggle').checked = !!s.background;
       document.getElementById('st-bg-interval').value = String(s.intervalMin || 15);
+      document.getElementById('st-startup-toggle').checked = !!s.launchOnStartup;
       setToneSelect(s.tone || 'builtin:mixkit-magic-notification-ring-2344.wav');
     }).catch(() => {});
 
     function pushSyncSettings() {
       const s = {
-        background:    document.getElementById('st-bg-toggle').checked,
-        intervalMin:   parseInt(document.getElementById('st-bg-interval').value) || 15,
-        notifications: document.getElementById('st-notif-toggle').checked,
-        tone:          document.getElementById('st-tone-select').value,
+        background:      document.getElementById('st-bg-toggle').checked,
+        intervalMin:     parseInt(document.getElementById('st-bg-interval').value) || 15,
+        // Preserve the persisted notifications preference. The visible notif checkbox
+        // is permission-gated (shows OFF when OS notification permission isn't granted),
+        // so reading it here would silently disable notifications whenever an unrelated
+        // control (startup, tone, interval) changes. Only the notif toggle's own handler
+        // mutates _curSync.notifications.
+        notifications:   _curSync ? _curSync.notifications !== false : true,
+        tone:            document.getElementById('st-tone-select').value,
+        launchOnStartup: document.getElementById('st-startup-toggle').checked,
       };
       _curSync = {...s};
       window.electronAPI.setSyncSettings(s);
     }
     window._pushSyncSettings = pushSyncSettings;
-    document.getElementById('st-bg-toggle').onchange   = pushSyncSettings;
-    document.getElementById('st-bg-interval').onchange = pushSyncSettings;
-    document.getElementById('st-tone-select').onchange = pushSyncSettings;
+    document.getElementById('st-bg-toggle').onchange      = pushSyncSettings;
+    document.getElementById('st-bg-interval').onchange    = pushSyncSettings;
+    document.getElementById('st-startup-toggle').onchange = pushSyncSettings;
+    document.getElementById('st-tone-select').onchange    = pushSyncSettings;
 
     document.getElementById('st-tone-preview').onclick = () => {
       const val = document.getElementById('st-tone-select').value;
@@ -4210,6 +4263,14 @@ $('compose-btn').onclick = () => openCompose();
     applyFontSize(13);
     applyChips(true); refreshChipStyle();
     applyPriority(true); refreshPriorityStyle();
+    // Also reset the Electron-side sync settings (background sync, tone, AND
+    // launch-on-startup) — otherwise "Reset everything" silently leaves the app
+    // still registered to start with Windows and running in the tray.
+    if (window.electronAPI) {
+      const DEF_SYNC = { background: true, intervalMin: 15, notifications: true, tone: 'builtin:mixkit-magic-notification-ring-2344.wav', launchOnStartup: false };
+      _curSync = { ...DEF_SYNC };
+      window.electronAPI.setSyncSettings(DEF_SYNC);
+    }
     showToast('All settings reset.');
     closeSettings();
   };

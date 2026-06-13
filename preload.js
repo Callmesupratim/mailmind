@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   setSyncSettings:  s  => ipcRenderer.send('set-sync-settings', s),
   getSyncSettings:  () => ipcRenderer.invoke('get-sync-settings'),
+  isPackaged:       () => ipcRenderer.invoke('app-is-packaged'),
   pickToneFile:     () => ipcRenderer.invoke('pick-tone-file'),
   checkForUpdates:  () => ipcRenderer.invoke('check-for-updates'),
   installUpdate:    () => ipcRenderer.send('install-update'),
