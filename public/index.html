@@ -72,7 +72,7 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .sb-top{padding:14px 14px 10px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 .sb-logo{display:flex;align-items:center;gap:8px}
 .sb-mark{width:26px;height:26px;border-radius:6px;background:var(--accent);display:flex;align-items:center;justify-content:center;box-shadow:0 0 10px oklch(72% 0.27 var(--accent-h,136) / 0.4)}
-.sb-word{font-size:14px;font-weight:600;letter-spacing:.04em;color:var(--t1);font-family:var(--font-mono);text-transform:lowercase}
+.sb-word{font-size:14px;font-weight:600;letter-spacing:.04em;color:var(--t1);font-family:var(--font-mono);text-transform:uppercase}
 .sb-theme{width:28px;height:28px;border-radius:6px;background:none;border:1px solid var(--bc);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--t2);transition:background 100ms,color 100ms}
 .sb-theme:hover{background:var(--p2);color:var(--t1)}
 .sb-compose{margin:0 8px 8px;display:flex;align-items:center;gap:7px;width:calc(100% - 16px);height:32px;padding:0 10px;border-radius:7px;background:var(--adim);border:1px solid var(--abrd);color:var(--accent);font-size:12.5px;font-weight:700;letter-spacing:.02em;transition:box-shadow 150ms,opacity 100ms;box-shadow:var(--aglow)}
@@ -512,6 +512,9 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .rb-sig{padding:6px 12px 2px;border-top:1px dashed var(--bc);font-size:12px;line-height:1.5;color:var(--t2);overflow:hidden}
 .rb-sig:empty{display:none}
 /* Signatures manager modal */
+/* The editor opens FROM the manager, so it must stack above it (both are .modal-overlay
+   at z-index 200; without this the editor renders behind and the manager blocks it). */
+#sig-modal{z-index:210}
 .sig-mgr-inner{background:var(--p2);border-radius:12px;width:520px;max-width:95vw;max-height:84vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.35)}
 .sig-card{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--bc);border-radius:8px;background:var(--p1)}
 .sig-card-body{flex:1;min-width:0}

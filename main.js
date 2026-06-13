@@ -66,6 +66,29 @@ function getExistingServerVersion(port) {
   });
 }
 
+// Forcefully and SYNCHRONOUSLY terminate the spawned server (and any children it
+// started) before we quit or hand off to the updater. A plain serverProcess.kill()
+// on Windows often leaves the node.exe alive — which then (a) keeps holding port 3000
+// so the freshly-installed app times out on launch, and (b) locks resources\node.exe
+// so the NSIS installer can't overwrite it and the update fails. taskkill /T /F kills
+// the whole tree forcibly; doing it synchronously guarantees it's gone before the
+// installer touches the files.
+function killServerProcessSync() {
+  const proc = serverProcess;
+  serverProcess = null;
+  if (!proc || proc.killed) return;
+  try {
+    if (process.platform === 'win32' && proc.pid) {
+      require('child_process').execSync('taskkill /PID ' + proc.pid + ' /T /F', { stdio: 'ignore' });
+    } else {
+      proc.kill();
+    }
+  } catch (e) {
+    log('killServerProcessSync: ' + (e.message || e));
+    try { proc.kill(); } catch {}
+  }
+}
+
 function killStaleServer(port) {
   return new Promise(resolve => {
     const { exec } = require('child_process');
@@ -84,7 +107,7 @@ function killStaleServer(port) {
 }
 
 // ── Sync settings (background tray polling) ───────────────────────────────────
-const DEFAULT_SYNC = { background: true, intervalMin: 15, notifications: true, tone: 'builtin:mixkit-magic-notification-ring-2344.wav', launchOnStartup: false };
+const DEFAULT_SYNC = { background: true, intervalMin: 5, notifications: true, tone: 'builtin:mixkit-magic-notification-ring-2344.wav', launchOnStartup: false };
 
 // ── Launch-on-Windows-startup ─────────────────────────────────────────────────
 // Registers/unregisters the app in the Windows "Run" key via Electron. Launched
@@ -114,12 +137,25 @@ function isLaunchOnStartupEnabled() {
   catch { return false; }
 }
 
+const LEGACY_DEFAULT_INTERVAL = 15;   // pre-1.1.7 default; migrate untouched installs to the new 5-min default
 function loadSyncSettings(userData) {
   try {
     const p = path.join(userData, 'sync-settings.json');
-    if (fs.existsSync(p)) return { ...DEFAULT_SYNC, ...JSON.parse(fs.readFileSync(p, 'utf8')) };
+    if (fs.existsSync(p)) {
+      const saved = { ...DEFAULT_SYNC, ...JSON.parse(fs.readFileSync(p, 'utf8')) };
+      // One-time migration: anyone still on the old 15-min default never deliberately
+      // chose it (15 was the baked-in default), so bump them to the faster new default
+      // and persist a marker so this runs exactly once — a later deliberate choice of
+      // 15 must survive future launches.
+      if (!saved._intervalMigrated) {
+        if (saved.intervalMin === LEGACY_DEFAULT_INTERVAL) saved.intervalMin = DEFAULT_SYNC.intervalMin;
+        saved._intervalMigrated = true;
+        saveSyncSettings(userData, saved);
+      }
+      return saved;
+    }
   } catch {}
-  return { ...DEFAULT_SYNC };
+  return { ...DEFAULT_SYNC, _intervalMigrated: true };
 }
 
 function saveSyncSettings(userData, s) {
@@ -133,7 +169,7 @@ let serverProcess = null;
 let win           = null;
 let tray          = null;
 let syncTimer     = null;
-let lastTopId     = null;
+let lastTopByAcct = null;   // Map<accountId, newestEmailId> — null until first poll baselines it
 let trayHintShown = false;
 let userData      = '';
 let syncSettings  = { ...DEFAULT_SYNC };
@@ -145,12 +181,16 @@ async function doBackgroundPoll() {
   if (pollInFlight) return;   // a hung poll must not stack new ones every interval
   pollInFlight = true;
   try {
+    // Poll EVERY connected mailbox, not just the active one. /api/emails/all
+    // aggregates inboxes across all accounts and tags each email with _accountId /
+    // _accountEmail, so a new message in any mailbox can notify us — even the ones
+    // not currently open in the UI.
     const result = await win.webContents.executeJavaScript(`
       (async () => {
         try {
           const ctrl = new AbortController();
           setTimeout(() => ctrl.abort(), 30000);
-          const r = await fetch('/api/emails?q=in:inbox&maxResults=5', { credentials: 'include', signal: ctrl.signal });
+          const r = await fetch('/api/emails/all', { credentials: 'include', signal: ctrl.signal });
           if (!r.ok) return '[]';
           const d = await r.json();
           return JSON.stringify(d.emails || []);
@@ -159,12 +199,33 @@ async function doBackgroundPoll() {
     `);
     const emails = JSON.parse(result);
     if (!emails.length) return;
-    const topId = emails[0].id;
-    if (lastTopId === null) { lastTopId = topId; return; } // first run — baseline only
-    if (topId === lastTopId) return;
-    lastTopId = topId;
-    const newest = emails[0];
+
+    // Newest email per account (emails are already sorted newest-first by the server,
+    // so the first occurrence of each accountId is that mailbox's newest message).
+    const newestByAcct = new Map();
+    for (const e of emails) {
+      const aid = e._accountId || 'default';
+      if (!newestByAcct.has(aid)) newestByAcct.set(aid, e);
+    }
+
+    // First poll just baselines every mailbox — no notification for pre-existing mail.
+    if (lastTopByAcct === null) {
+      lastTopByAcct = new Map();
+      for (const [aid, e] of newestByAcct) lastTopByAcct.set(aid, e.id);
+      return;
+    }
+
+    // Collect mailboxes whose newest message changed since last poll.
+    const fresh = [];
+    for (const [aid, e] of newestByAcct) {
+      const prev = lastTopByAcct.get(aid);
+      lastTopByAcct.set(aid, e.id);
+      if (prev !== undefined && prev !== e.id) fresh.push(e);
+    }
+    if (!fresh.length) return;
+
     tray?.setToolTip('Mailmind — new mail arrived');
+
     const tone = syncSettings.tone || 'builtin:mixkit-magic-notification-ring-2344.wav';
     if (tone !== 'none') {
       let soundUrl;
@@ -179,13 +240,27 @@ async function doBackgroundPoll() {
         ).catch(() => {});
       }
     }
+
     if (syncSettings.notifications && Notification.isSupported()) {
-      const n = new Notification({
-        title: '📬 New mail — Mailmind',
-        body: (newest.sender ? newest.sender + ' · ' : '') + (newest.subject || '(no subject)'),
-      });
-      n.on('click', () => { win.show(); win.focus(); });
-      n.show();
+      if (fresh.length === 1) {
+        const newest = fresh[0];
+        const acct = newest._accountEmail ? ' (' + newest._accountEmail + ')' : '';
+        const n = new Notification({
+          title: '📬 New mail — Mailmind' + acct,
+          body: (newest.sender ? newest.sender + ' · ' : '') + (newest.subject || '(no subject)'),
+        });
+        n.on('click', () => { win.show(); win.focus(); });
+        n.show();
+      } else {
+        // Multiple mailboxes got new mail this round — one summary notification.
+        const boxes = [...new Set(fresh.map(e => e._accountEmail).filter(Boolean))];
+        const n = new Notification({
+          title: '📬 New mail in ' + fresh.length + ' messages — Mailmind',
+          body: boxes.length ? boxes.join(', ') : 'New messages across your mailboxes',
+        });
+        n.on('click', () => { win.show(); win.focus(); });
+        n.show();
+      }
     }
   } catch (e) {
     log('background poll error: ' + e.message);
@@ -204,7 +279,9 @@ function startSyncTimer() {
 
 // ── IPC: renderer ↔ main ──────────────────────────────────────────────────────
 ipcMain.on('set-sync-settings', (_, s) => {
-  syncSettings = { ...DEFAULT_SYNC, ...s };
+  // Keep the one-time interval-migration marker pinned on regardless of what the
+  // renderer sends, so a deliberate interval choice (incl. 15) is never re-migrated.
+  syncSettings = { ...DEFAULT_SYNC, ...s, _intervalMigrated: true };
   saveSyncSettings(userData, syncSettings);
   startSyncTimer();
   applyLoginItemSettings(syncSettings.launchOnStartup);
@@ -249,7 +326,7 @@ function updateTrayMenu() {
       label: 'Quit Mailmind',
       click: () => {
         tray.destroy();
-        if (serverProcess) serverProcess.kill();
+        killServerProcessSync();
         app.exit(0);
       },
     },
@@ -467,6 +544,10 @@ app.whenReady().then(async () => {
         autoUpdater.checkForUpdates().catch(e => sendUpdateStatus('error', e.message));
       });
       ipcMain.on('install-update', () => {
+        // Kill the server FIRST so it can't lock resources\node.exe or hold port 3000
+        // while the installer swaps files in — otherwise the update fails and the
+        // relaunched app errors out. Then hand off to the updater.
+        killServerProcessSync();
         autoUpdater.quitAndInstall();
       });
 
@@ -496,8 +577,9 @@ app.on('window-all-closed', () => {
   if (!persist) app.quit();
 });
 
-// Fires on quitAndInstall (auto-update) and any other quit path — make sure the
-// spawned server never outlives the app (orphans cause EADDRINUSE on relaunch).
+// Fires on quitAndInstall, auto-install-on-quit, and any other quit path — make sure
+// the spawned server never outlives the app (orphans hold port 3000 → EADDRINUSE /
+// launch timeout, and lock node.exe → failed updates).
 app.on('before-quit', () => {
-  try { if (serverProcess) serverProcess.kill(); } catch {}
+  killServerProcessSync();
 });
