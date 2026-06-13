@@ -225,6 +225,14 @@ async function doBackgroundPoll() {
     }
     if (!fresh.length) return;
 
+    // Avoid double-notifying. When the window is visible the renderer's own 60s poll
+    // already shows the toast + notification + sound, so the main process stays quiet
+    // and only notifies for foreground-invisible states (hidden to tray, or minimized) —
+    // which is exactly when the renderer poll is paused (document.hidden). The baselines
+    // above are already updated, so this mail won't re-notify when the window reopens.
+    const pageVisible = win.isVisible() && !win.isMinimized();
+    if (pageVisible) return;
+
     tray?.setToolTip('Mailmind — new mail arrived');
 
     const tone = syncSettings.tone || 'builtin:mixkit-magic-notification-ring-2344.wav';

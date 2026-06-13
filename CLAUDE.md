@@ -18,9 +18,11 @@ Mailmind is a custom email client (Electron desktop app + web app) built with No
 - `package.json` — Dependencies + electron-builder config for Windows installer
 
 ## Security
-- `.env` contains live secrets — **never commit or share**
+- `.env` contains live secrets — **never commit or share**. Used by the NSSM **web** deployment (full secret set).
 - Keys: `GROQ_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET`, `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`
 - `SESSION_SECRET` derives the encryption key for stored IMAP/Microsoft credentials — **never change it**
+- **Installer bundles `.env.dist`, NOT `.env`** (the desktop app is distributed publicly). `.env.dist` holds **only OAuth creds** — no AI keys (users supply their own via Settings → AI Features; resolved request → DB → env in `server/index.js` `resolveKey`), no `SESSION_SECRET` (the desktop app injects a per-machine secret in `main.js`). `.env.dist` is gitignored.
+- **Regenerate `.env.dist` whenever you rotate OAuth creds in `.env`** — filter the live `.env` to the OAuth allowlist (`GOOGLE_*`, `MICROSOFT_*`, `ZOHO_*`, `YAHOO_*`; exclude AI keys, `SESSION_SECRET`, `MAILMIND_SECRET`, `PORT`). package.json `build.extraResources` maps `.env.dist` → `.env` inside the app.
 
 ## Service
 - Runs as Windows service via NSSM: `Mailmind`

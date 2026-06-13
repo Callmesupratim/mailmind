@@ -3,6 +3,7 @@ node_modules/
 
 # Environment / secrets — NEVER commit
 .env
+.env.dist
 
 # Local database
 data.db
