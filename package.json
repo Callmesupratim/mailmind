@@ -1,6 +1,6 @@
 {
   "name": "mailmind",
-  "version": "1.1.9",
+  "version": "1.1.10",
   "description": "Gmail-connected AI email assistant powered by Groq",
   "author": "Phoenixtek Solution",
   "main": "main.js",
@@ -59,7 +59,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Mailmind",
-      "license": "LICENSE.txt"
+      "license": "LICENSE.txt",
+      "include": "installer.nsh"
     },
     "win": {
       "icon": "icon.png",
