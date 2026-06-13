@@ -31,9 +31,9 @@ textarea,input,select{font-family:inherit}
   --ab:oklch(8% 0.003 100);--p1:oklch(11% 0.004 100);--p2:oklch(13% 0.004 100);
   --p3:oklch(16% 0.004 100);--bc:oklch(20% 0.004 100);
   --t1:oklch(94% 0.005 100);--t2:oklch(64% 0.008 100);--t3:oklch(40% 0.007 100);
-  --accent:oklch(72% 0.27 136);--adim:oklch(72% 0.27 136 / 0.12);
-  --abrd:oklch(72% 0.27 136 / 0.28);
-  --aglow:0 0 0 1px var(--abrd),0 2px 12px oklch(72% 0.27 136 / 0.18);
+  --accent:oklch(72% 0.27 var(--accent-h,136));--adim:oklch(72% 0.27 var(--accent-h,136) / 0.12);
+  --abrd:oklch(72% 0.27 var(--accent-h,136) / 0.28);
+  --aglow:0 0 0 1px var(--abrd),0 2px 12px oklch(72% 0.27 var(--accent-h,136) / 0.18);
   --shadow-xl:0 16px 40px rgba(0,0,0,.50),0 8px 16px rgba(0,0,0,.30);
 }
 /* ── Light Theme ── */
@@ -41,9 +41,9 @@ textarea,input,select{font-family:inherit}
   --ab:oklch(96% 0.004 100);--p1:oklch(100% 0 0);--p2:oklch(98% 0.003 100);
   --p3:oklch(95% 0.004 100);--bc:oklch(89% 0.005 100);
   --t1:oklch(12% 0.005 100);--t2:oklch(44% 0.009 100);--t3:oklch(62% 0.008 100);
-  --accent:oklch(58% 0.24 136);--adim:oklch(58% 0.24 136 / 0.10);
-  --abrd:oklch(58% 0.24 136 / 0.22);
-  --aglow:0 0 0 1px var(--abrd),0 2px 8px oklch(58% 0.24 136 / 0.12);
+  --accent:oklch(58% 0.24 var(--accent-h,136));--adim:oklch(58% 0.24 var(--accent-h,136) / 0.10);
+  --abrd:oklch(58% 0.24 var(--accent-h,136) / 0.22);
+  --aglow:0 0 0 1px var(--abrd),0 2px 8px oklch(58% 0.24 var(--accent-h,136) / 0.12);
   --shadow-xl:0 16px 40px rgba(0,0,0,.12),0 8px 16px rgba(0,0,0,.06);
 }
 
@@ -71,12 +71,12 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .sb>*{position:relative;z-index:1}
 .sb-top{padding:14px 14px 10px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 .sb-logo{display:flex;align-items:center;gap:8px}
-.sb-mark{width:26px;height:26px;border-radius:6px;background:var(--accent);display:flex;align-items:center;justify-content:center;box-shadow:0 0 10px oklch(72% 0.27 136 / 0.4)}
+.sb-mark{width:26px;height:26px;border-radius:6px;background:var(--accent);display:flex;align-items:center;justify-content:center;box-shadow:0 0 10px oklch(72% 0.27 var(--accent-h,136) / 0.4)}
 .sb-word{font-size:14px;font-weight:600;letter-spacing:.04em;color:var(--t1);font-family:var(--font-mono);text-transform:lowercase}
 .sb-theme{width:28px;height:28px;border-radius:6px;background:none;border:1px solid var(--bc);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--t2);transition:background 100ms,color 100ms}
 .sb-theme:hover{background:var(--p2);color:var(--t1)}
 .sb-compose{margin:0 8px 8px;display:flex;align-items:center;gap:7px;width:calc(100% - 16px);height:32px;padding:0 10px;border-radius:7px;background:var(--adim);border:1px solid var(--abrd);color:var(--accent);font-size:12.5px;font-weight:700;letter-spacing:.02em;transition:box-shadow 150ms,opacity 100ms;box-shadow:var(--aglow)}
-.sb-compose:hover{opacity:.8;box-shadow:0 0 0 1px var(--abrd),0 4px 18px oklch(72% 0.27 136 / 0.25)}
+.sb-compose:hover{opacity:.8;box-shadow:0 0 0 1px var(--abrd),0 4px 18px oklch(72% 0.27 var(--accent-h,136) / 0.25)}
 .sb-scroll{flex:1;overflow-y:auto;padding:0 6px 8px}
 .sb-sec{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);padding:10px 8px 4px;display:flex;align-items:center;gap:6px}
 .sb-sec::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,var(--bc),transparent)}
@@ -84,14 +84,14 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .sb-item{display:flex;align-items:center;gap:8px;height:32px;padding:0 8px 0 6px;border-radius:7px;cursor:pointer;font-size:12.5px;color:var(--t2);user-select:none;transition:background 120ms,color 120ms;position:relative;overflow:hidden;margin-bottom:1px}
 .sb-item::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2.5px;background:var(--accent);border-radius:0 2px 2px 0;opacity:0;transform:scaleY(0.2);transition:opacity 180ms,transform 220ms cubic-bezier(.34,1.56,.64,1)}
 .sb-item:hover{background:var(--p2);color:var(--t1)}
-.sb-item.active{background:linear-gradient(90deg,oklch(72% 0.27 136 / 0.10) 0%,transparent 85%);color:var(--t1);font-weight:600}
+.sb-item.active{background:linear-gradient(90deg,oklch(72% 0.27 var(--accent-h,136) / 0.10) 0%,transparent 85%);color:var(--t1);font-weight:600}
 .sb-item.active::before{opacity:1;transform:scaleY(1)}
 .sb-item-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sb-item-cnt{font-size:9.5px;font-weight:700;min-width:16px;height:16px;padding:0 5px;border-radius:99px;display:inline-flex;align-items:center;justify-content:center;background:var(--p3);color:var(--t3)}
-.sb-item.active .sb-item-cnt{background:var(--adim);color:var(--accent);border:1px solid var(--abrd);box-shadow:0 0 6px oklch(72% 0.27 136 / 0.2)}
+.sb-item.active .sb-item-cnt{background:var(--adim);color:var(--accent);border:1px solid var(--abrd);box-shadow:0 0 6px oklch(72% 0.27 var(--accent-h,136) / 0.2)}
 /* Colored folder icon badges */
 .sb-icon{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:box-shadow 150ms}
-.sb-icon-inbox {background:oklch(72% 0.27 136 / 0.14);box-shadow:0 0 0 1px oklch(72% 0.27 136 / 0.22);color:var(--accent)}
+.sb-icon-inbox {background:oklch(72% 0.27 var(--accent-h,136) / 0.14);box-shadow:0 0 0 1px oklch(72% 0.27 var(--accent-h,136) / 0.22);color:var(--accent)}
 .sb-icon-unread {background:oklch(68% 0.18 240 / 0.12);box-shadow:0 0 0 1px oklch(68% 0.18 240 / 0.20);color:oklch(68% 0.18 240)}
 .sb-icon-star   {background:oklch(72% 0.20 72  / 0.12);box-shadow:0 0 0 1px oklch(72% 0.20 72  / 0.20);color:oklch(72% 0.20 72)}
 .sb-icon-sent   {background:oklch(68% 0.16 200 / 0.10);box-shadow:0 0 0 1px oklch(68% 0.16 200 / 0.18);color:oklch(68% 0.16 200)}
@@ -100,7 +100,7 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .sb-icon-spam   {background:oklch(62% 0.22 22  / 0.14);box-shadow:0 0 0 1px oklch(62% 0.22 22  / 0.26);color:oklch(62% 0.22 22)}
 .sb-icon-bin    {background:oklch(48% 0.08 0   / 0.12);box-shadow:0 0 0 1px oklch(48% 0.08 0   / 0.20);color:oklch(55% 0.06 0)}
 /* Active item icon glow boost */
-.sb-item.active .sb-icon-inbox {box-shadow:0 0 0 1px oklch(72% 0.27 136 / 0.40),0 0 8px oklch(72% 0.27 136 / 0.20)}
+.sb-item.active .sb-icon-inbox {box-shadow:0 0 0 1px oklch(72% 0.27 var(--accent-h,136) / 0.40),0 0 8px oklch(72% 0.27 var(--accent-h,136) / 0.20)}
 .sb-item.active .sb-icon-unread{box-shadow:0 0 0 1px oklch(68% 0.18 240 / 0.40),0 0 8px oklch(68% 0.18 240 / 0.20)}
 .sb-item.active .sb-icon-star  {box-shadow:0 0 0 1px oklch(72% 0.20 72  / 0.40),0 0 8px oklch(72% 0.20 72  / 0.20)}
 .sb-item.active .sb-icon-sent  {box-shadow:0 0 0 1px oklch(68% 0.16 200 / 0.40),0 0 8px oklch(68% 0.16 200 / 0.20)}
@@ -248,7 +248,7 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .aip-suggest-ta::placeholder{color:var(--t3)}
 .aip-suggest-foot{display:flex;align-items:center;justify-content:flex-end;padding:4px 6px;border-top:1px solid var(--bc);gap:6px}
 .aip-suggest-btn{display:flex;align-items:center;gap:4px;height:24px;padding:0 10px;border-radius:6px;background:var(--adim);border:1px solid var(--abrd);color:var(--accent);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;transition:background 100ms}
-.aip-suggest-btn:hover{background:oklch(72% 0.27 136/0.18)}
+.aip-suggest-btn:hover{background:oklch(72% 0.27 var(--accent-h,136)/0.18)}
 .aip-suggest-btn:disabled{opacity:.5;cursor:not-allowed}
 .aip-chip-loading{display:flex;align-items:center;gap:8px;color:var(--t3);font-size:11.5px;padding:4px 0}
 .aip-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;gap:8px;color:var(--t3);font-size:12px;padding:24px;text-align:center}
@@ -271,7 +271,7 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .rb-textarea::placeholder{color:var(--t3)}
 .rb-foot{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-top:1px solid var(--bc)}
 .rb-gen{display:flex;align-items:center;gap:5px;height:26px;padding:0 10px;border-radius:6px;background:var(--adim);border:1px solid var(--abrd);color:var(--accent);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;transition:background 100ms;white-space:nowrap}
-.rb-gen:hover{background:oklch(72% 0.27 136 / 0.18)}
+.rb-gen:hover{background:oklch(72% 0.27 var(--accent-h,136) / 0.18)}
 .rb-gen:disabled{opacity:.5;cursor:not-allowed}
 .rb-send{display:flex;align-items:center;gap:5px;height:28px;padding:0 14px;border-radius:6px;background:var(--accent);border:none;color:oklch(8% 0.003 100);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;transition:opacity 100ms}
 .rb-send:hover{opacity:.86}
@@ -301,8 +301,8 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .cm-tb-btn:hover{background:var(--p3);color:var(--t1)}
 .cm-tb-sep{width:1px;height:16px;background:var(--bc);margin:0 4px;flex-shrink:0}
 /* Compose signature strip */
-.cm-sig-wrap{border-top:1px solid var(--p1);flex-shrink:0}
-#cm-sig{padding:8px 14px 6px;font-size:12px;max-height:110px;overflow-y:auto;opacity:.75}
+.cm-sig-wrap{flex-shrink:0}
+#cm-sig{padding:4px 14px 6px;font-size:12px;max-height:110px;overflow-y:auto;opacity:.75}
 #cm-sig:empty{display:none;padding:0}
 .cm-sig-wrap:has(#cm-sig:empty){display:none}
 /* Compose attachment chips */
@@ -335,7 +335,7 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .am-email-wrap{position:relative}
 .am-email-icon{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--t3);pointer-events:none}
 .am-email-input{width:100%;padding:12px 14px 12px 38px;border-radius:10px;border:1.5px solid var(--bc);background:var(--p1);color:var(--t1);font-family:inherit;font-size:14px;outline:none;transition:border-color 180ms,box-shadow 180ms}
-.am-email-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px oklch(72% 0.27 136 / 0.12)}
+.am-email-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px oklch(72% 0.27 var(--accent-h,136) / 0.12)}
 .am-email-input::placeholder{color:var(--t3)}
 /* Provider detection chip */
 .am-detect{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--t3);min-height:20px;padding:0 2px;transition:opacity 200ms}
@@ -343,7 +343,7 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .am-detect-logo{width:18px;height:18px;border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .am-detect-name{font-weight:600;color:var(--t2)}
 .am-detect-badge{margin-left:auto;font-size:9.5px;font-weight:700;padding:2px 8px;border-radius:99px;letter-spacing:.05em;text-transform:uppercase}
-.am-detect-badge.oauth{background:oklch(72% 0.27 136 / 0.14);color:var(--accent);border:1px solid var(--abrd)}
+.am-detect-badge.oauth{background:oklch(72% 0.27 var(--accent-h,136) / 0.14);color:var(--accent);border:1px solid var(--abrd)}
 .am-detect-badge.apppass{background:var(--p3);color:var(--t3);border:1px solid var(--bc)}
 .am-detect-badge.bridge{background:oklch(62% 0.22 22 / 0.12);color:oklch(62% 0.22 22);border:1px solid oklch(62% 0.22 22 / 0.30)}
 /* Divider with label */
@@ -352,7 +352,7 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 /* Provider connect card */
 .am-card{display:flex;align-items:center;gap:14px;padding:13px 15px;border-radius:11px;border:1.5px solid var(--bc);background:var(--p3);cursor:pointer;transition:all 140ms;text-decoration:none;color:inherit}
 .am-card:hover{border-color:var(--t3);background:var(--p2)}
-.am-card.primary{border-color:var(--abrd);background:linear-gradient(135deg,oklch(72% 0.27 136 / 0.07),transparent)}
+.am-card.primary{border-color:var(--abrd);background:linear-gradient(135deg,oklch(72% 0.27 var(--accent-h,136) / 0.07),transparent)}
 .am-card.primary:hover{border-color:var(--accent);box-shadow:var(--aglow)}
 .am-card-icon{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:18px}
 .am-card-text{flex:1}
@@ -510,6 +510,33 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 /* Reply-box signature preview strip */
 .rb-sig{padding:6px 12px 2px;border-top:1px dashed var(--bc);font-size:12px;line-height:1.5;color:var(--t2);overflow:hidden}
 .rb-sig:empty{display:none}
+/* Signatures manager modal */
+.sig-mgr-inner{background:var(--p2);border-radius:12px;width:520px;max-width:95vw;max-height:84vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.35)}
+.sig-card{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--bc);border-radius:8px;background:var(--p1)}
+.sig-card-body{flex:1;min-width:0}
+.sig-card-name{font-size:12.5px;font-weight:600;color:var(--t1);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.sig-default-badge{font-size:9.5px;font-weight:600;color:#6366f1;background:rgba(99,102,241,.13);border-radius:4px;padding:1px 6px;letter-spacing:.04em;flex-shrink:0}
+.sig-card-preview{font-size:11px;color:var(--t3);margin-top:3px;max-height:34px;overflow:hidden;line-height:1.5}
+.sig-card-actions{display:flex;gap:5px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;align-items:flex-start}
+.sig-act-btn{height:26px;padding:0 10px;font-size:11px;border-radius:6px;border:1px solid var(--bc);background:var(--p2);color:var(--t2);cursor:pointer;white-space:nowrap;transition:all 80ms}
+.sig-act-btn:hover{background:var(--p3);color:var(--t1)}
+.sig-act-btn.danger{color:var(--hi);border-color:var(--hibrd)}
+.sig-act-btn.danger:hover{background:rgba(239,68,68,.1)}
+.sig-name-input{width:100%;padding:7px 10px;font-size:12px;color:var(--t1);background:var(--p1);border:1.5px solid var(--bc);border-radius:7px;outline:none;transition:border-color 150ms;box-sizing:border-box}
+.sig-name-input:focus{border-color:var(--accent)}
+/* Sig switcher bar in compose / reply */
+.sig-bar{display:flex;align-items:center;gap:6px;padding:3px 10px 4px;border-top:1px solid var(--p1)}
+.sig-select{font-size:10.5px;color:var(--t2);background:var(--p1);border:1px solid var(--bc);border-radius:4px;padding:1px 6px;cursor:pointer;outline:none;max-width:200px}
+/* Per-mailbox accent theme picker */
+.acct-dot{width:14px;height:14px;border-radius:50%;border:2px solid var(--p2);flex-shrink:0;cursor:pointer;padding:0;opacity:0;transition:opacity 120ms,transform 100ms;box-sizing:border-box}
+.sb-item:hover .acct-dot{opacity:1}
+.acct-dot:hover{transform:scale(1.25)}
+.accent-pop{position:fixed;z-index:400;background:var(--p2);border:1px solid var(--bc);border-radius:10px;padding:10px;box-shadow:var(--shadow-xl);display:flex;flex-direction:column;gap:8px;width:172px}
+.accent-pop-title{font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--t3)}
+.accent-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.accent-swatch{width:30px;height:30px;border-radius:50%;cursor:pointer;border:2px solid transparent;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;transition:transform 100ms;box-sizing:border-box;padding:0}
+.accent-swatch:hover{transform:scale(1.12)}
+.accent-swatch.on{border-color:var(--t1)}
 
 /* ── Settings modal ── */
 .settings-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px}
@@ -702,7 +729,7 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 
       <button class="sb-signout" id="sig-open-btn" style="color:var(--t2)">
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12l2-2 8-8 2 2-8 8-2 2-2-2z"/><path d="M12 2l2 2"/><path d="M2 14h12"/></svg>
-        Signature
+        Signatures
       </button>
       <button class="sb-signout" id="settings-open-btn" style="color:var(--t2)">
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.5"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.1 3.1l1.4 1.4M11.5 11.5l1.4 1.4M3.1 12.9l1.4-1.4M11.5 4.5l1.4-1.4"/></svg>
@@ -826,6 +853,10 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
             <textarea class="rb-textarea" id="rb-textarea" placeholder="Reply, or generate an AI draft…" spellcheck="false" autocomplete="off"></textarea>
             <div class="cm-atts" id="rb-atts" style="padding:0 10px"></div>
             <div class="rb-sig" id="rb-sig-preview"></div>
+            <div class="sig-bar" id="rb-sig-bar" style="display:none">
+              <span style="font-size:10px;color:var(--t3);flex-shrink:0">Signature:</span>
+              <select id="rb-sig-select" class="sig-select"></select>
+            </div>
             <div class="rb-foot">
               <button class="rb-gen" id="rb-gen">
                 <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 1l1.2 5.8L15 8l-5.8 1.2L8 15l-1.2-5.8L1 8l5.8-1.2z"/></svg>
@@ -914,6 +945,11 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
       <input class="cm-ai-instr-input" id="cm-ai-instr-input" type="text" placeholder="Describe what you want to write, e.g. 'follow up on delivery date'…">
     </div>
     <textarea class="cm-body" id="cm-body" placeholder="Write your message, or generate with AI…" spellcheck="false" autocomplete="off"></textarea>
+    <!-- Signature switcher bar -->
+    <div class="sig-bar" id="cm-sig-bar" style="display:none">
+      <span style="font-size:10px;color:var(--t3);flex-shrink:0">Signature:</span>
+      <select id="cm-sig-select" class="sig-select"></select>
+    </div>
     <!-- Signature preview -->
     <div class="cm-sig-wrap"><div id="cm-sig"></div></div>
     <!-- Attachment chips -->
@@ -1254,7 +1290,7 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
         <div class="st-row">
           <div class="st-info"><div class="st-label">Email signature</div><div class="st-desc">Manage your HTML signature appended to every email</div></div>
           <div class="st-control">
-            <button class="st-ok-btn" id="st-sig-shortcut">Edit Signature</button>
+            <button class="st-ok-btn" id="st-sig-shortcut">Manage Signatures</button>
           </div>
         </div>
       </div>
@@ -1401,7 +1437,7 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
   <div class="sig-modal-inner">
     <div class="sc-modal-head">
       <div>
-        <div style="font-size:14px;font-weight:700;color:var(--t1)">Email Signature</div>
+        <div id="sig-modal-title" style="font-size:14px;font-weight:700;color:var(--t1)">Email Signature</div>
         <div style="font-size:11px;color:var(--t3);margin-top:2px">Paste your rich signature or enter HTML source</div>
       </div>
       <button class="modal-close" id="sig-modal-close">
@@ -1409,6 +1445,11 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
       </button>
     </div>
     <div style="padding:14px 16px 16px;display:flex;flex-direction:column;gap:10px">
+      <!-- Signature name -->
+      <div>
+        <label style="font-size:10.5px;color:var(--t3);font-weight:600;letter-spacing:.04em;display:block;margin-bottom:4px">SIGNATURE NAME</label>
+        <input type="text" id="sig-name-input" class="sig-name-input" placeholder="e.g. Professional, Casual, Work…" maxlength="60">
+      </div>
       <!-- Mode tabs -->
       <div class="sig-tabs">
         <button class="sig-tab on" id="sig-tab-visual">✏️ Visual (paste here)</button>
@@ -1435,6 +1476,28 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
           <button id="sig-save" class="cm-send" style="height:30px;padding:0 14px">Save Signature</button>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SIGNATURES MANAGER MODAL ══ -->
+<div class="modal-overlay hidden" id="sig-mgr-modal">
+  <div class="sig-mgr-inner">
+    <div class="sc-modal-head">
+      <div>
+        <div style="font-size:14px;font-weight:700;color:var(--t1)">Email Signatures</div>
+        <div style="font-size:11px;color:var(--t3);margin-top:2px">Create multiple signatures and pick one per email</div>
+      </div>
+      <button class="modal-close" id="sig-mgr-close">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"/></svg>
+      </button>
+    </div>
+    <div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:8px;overflow-y:auto;flex:1">
+      <div style="display:flex;justify-content:flex-end;padding-top:12px">
+        <button class="cm-send" id="sig-add-new" style="height:30px;padding:0 14px;font-size:12px">+ Add Signature</button>
+      </div>
+      <div id="sig-list" style="display:flex;flex-direction:column;gap:8px"></div>
+      <div id="sig-list-empty" style="text-align:center;padding:24px 0;color:var(--t3);font-size:12px">No signatures yet. Click "Add Signature" to create one.</div>
     </div>
   </div>
 </div>
@@ -1562,6 +1625,73 @@ $('theme-toggle').onclick = () => {
   applyTheme(saved);
 })();
 
+// ── Per-mailbox accent themes ───────────────────────────────────────────────────
+// Each account can have its own accent colour; the whole UI re-tints on switch.
+const ACCENT_THEMES = [
+  { id: 'green',  name: 'Green',  hue: 136, swatch: 'oklch(65% 0.22 136)' },
+  { id: 'teal',   name: 'Teal',   hue: 185, swatch: 'oklch(65% 0.18 185)' },
+  { id: 'blue',   name: 'Blue',   hue: 240, swatch: 'oklch(62% 0.20 240)' },
+  { id: 'indigo', name: 'Indigo', hue: 275, swatch: 'oklch(60% 0.21 275)' },
+  { id: 'purple', name: 'Purple', hue: 310, swatch: 'oklch(62% 0.23 310)' },
+  { id: 'pink',   name: 'Pink',   hue: 350, swatch: 'oklch(64% 0.23 350)' },
+  { id: 'red',    name: 'Red',    hue: 25,  swatch: 'oklch(62% 0.22 25)'  },
+  { id: 'amber',  name: 'Amber',  hue: 75,  swatch: 'oklch(70% 0.17 75)'  },
+];
+function loadAcctAccents() {
+  try { return JSON.parse(localStorage.getItem('mm-acct-accents') || '{}'); } catch { return {}; }
+}
+function getAcctAccent(acctId) {
+  const map = loadAcctAccents();
+  return ACCENT_THEMES.find(t => t.id === map[acctId]) || ACCENT_THEMES[0];
+}
+function applyAcctAccent(acctId) {
+  const t = getAcctAccent(acctId);
+  document.documentElement.style.setProperty('--accent-h', t.hue);
+}
+function setAcctAccent(acctId, themeId) {
+  const map = loadAcctAccents();
+  map[acctId] = themeId;
+  try { localStorage.setItem('mm-acct-accents', JSON.stringify(map)); } catch {}
+  if (acctId === S.activeAcctId) applyAcctAccent(acctId);
+  renderSidebar();
+}
+let _accentPop = null;
+function closeAccentPicker() {
+  if (_accentPop) { _accentPop.remove(); _accentPop = null; }
+}
+function openAccentPicker(ev, acctId) {
+  closeAccentPicker();
+  const cur = getAcctAccent(acctId);
+  const pop = document.createElement('div');
+  pop.className = 'accent-pop';
+  pop.innerHTML = '<div class="accent-pop-title">Mailbox colour</div>' +
+    '<div class="accent-grid">' +
+    ACCENT_THEMES.map(t =>
+      `<button class="accent-swatch${t.id === cur.id ? ' on' : ''}" style="background:${t.swatch}" title="${t.name}">${t.id === cur.id ? '✓' : ''}</button>`
+    ).join('') +
+    '</div>';
+  pop.querySelectorAll('.accent-swatch').forEach((btn, i) => {
+    btn.onclick = e => {
+      e.stopPropagation();
+      setAcctAccent(acctId, ACCENT_THEMES[i].id);
+      closeAccentPicker();
+    };
+  });
+  document.body.appendChild(pop);
+  // Position near the dot, clamped to viewport
+  const r = ev.target.getBoundingClientRect();
+  const pw = 172, ph = 110;
+  pop.style.left = Math.min(r.left, window.innerWidth - pw - 10) + 'px';
+  pop.style.top  = Math.min(r.bottom + 6, window.innerHeight - ph - 10) + 'px';
+  _accentPop = pop;
+  // Close on outside click (deferred so this click doesn't trigger it)
+  setTimeout(() => {
+    document.addEventListener('click', function h(e) {
+      if (!pop.contains(e.target)) { closeAccentPicker(); document.removeEventListener('click', h); }
+    });
+  }, 0);
+}
+
 // ── Boot ───────────────────────────────────────────────────────────────────────
 async function initAuth() {
   try {
@@ -1575,6 +1705,7 @@ async function initAuth() {
     $('app').classList.add('visible');
     S.accounts = res.accounts;
     S.activeAcctId = res.activeId || res.accounts[0].id;
+    applyAcctAccent(S.activeAcctId);
     renderSidebar();
     hydrateAISettings();
     loadEmails();
@@ -1598,9 +1729,11 @@ function renderSidebar() {
     const icon = PROVIDER_ICON[a.type] || PROVIDER_ICON.imap;
     const active = a.id === S.activeAcctId;
     const bg = a.type==='microsoft' ? '#fff' : a.type==='gmail'||a.type==='google' ? '#fff' : 'var(--p3)';
+    const acc = getAcctAccent(a.id);
     return `<div class="sb-item${active?' active':''}" onclick="switchAccount(${a.id})">
       <div style="width:22px;height:22px;border-radius:5px;background:${bg};display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1px solid var(--bc)">${icon}</div>
       <span class="sb-item-label">${esc(a.email||a.label)}</span>
+      <button class="acct-dot" style="background:${acc.swatch}" title="Mailbox colour" onclick="event.stopPropagation();openAccentPicker(event,${a.id})"></button>
       <div class="sb-status" style="background:var(--lo)"></div>
     </div>`;
   }).join('');
@@ -1616,6 +1749,7 @@ function renderSidebar() {
 async function switchAccount(id) {
   await fetch(`/api/accounts/${id}/activate`, {method:'POST'}).catch(()=>{});
   S.activeAcctId = id;
+  applyAcctAccent(id);
   S.activeEmail = null;
   S.activeThread = null;
   S.folder = 'inbox'; S.folderQ = 'in:inbox';
@@ -1778,7 +1912,7 @@ function updateCatCounts(emails) {
 
 // ── Load emails ────────────────────────────────────────────────────────────────
 // silent=true → no spinner, preserves active selection (used by auto-refresh)
-async function loadEmails(append=false, silent=false) {
+async function loadEmails(append=false, silent=false, _retry=0) {
   if (append && _loadingMore) return;   // prevent double-fire from IntersectionObserver
   if (!append) {
     if (_scrollObserver) { _scrollObserver.disconnect(); _scrollObserver = null; }
@@ -1840,9 +1974,25 @@ async function loadEmails(append=false, silent=false) {
     S.nextPageToken = data.nextPageToken;
     renderList();
     updateDigest();
+
+    // Server-warmup guard: a freshly-spawned backend can return an empty first page
+    // before its mail client (Gmail/Graph/IMAP) is ready. Without a retry the UI gets
+    // stuck on a false "No messages" until the user manually reloads. Auto-retry a few
+    // times with backoff so the inbox fills in on its own once the server is warm.
+    if (!append && !silent && !S.searchQ && S.emails.length === 0 && _retry < 3) {
+      const delay = 1200 * (_retry + 1);   // 1.2s, 2.4s, 3.6s
+      setTimeout(() => {
+        // Only retry if the view hasn't moved on and is still empty
+        if (!S.searchQ && (S.emails || []).length === 0) loadEmails(false, true, _retry + 1);
+      }, delay);
+    }
   } catch(e) {
     const msg = e.name === 'AbortError' ? 'Request timed out — check your connection and retry' : e.message;
     if (!silent) $('email-list').innerHTML = `<div class="el-empty">⚠ ${esc(msg)}</div>`;
+    // Network/abort errors during startup also warrant a silent retry
+    if (!append && !silent && _retry < 3) {
+      setTimeout(() => { if ((S.emails || []).length === 0) loadEmails(false, true, _retry + 1); }, 1200 * (_retry + 1));
+    }
   } finally {
     _loadingMore = false;
   }
@@ -2566,7 +2716,7 @@ $('rb-send').onclick = async () => {
     ? (S.replyAllCC || '').split(',').map(s => s.trim()).filter(e => e && e !== selfEmail && !e.includes(selfEmail)).join(', ')
     : '';
   // Build HTML if formatting tags present or signature set
-  const sigHtml = loadSignature();
+  const sigHtml = _rbActiveSigHtml || '';
   const hasHtml = /<[a-z]/i.test(rawBody);
   let html = null, plainBody = rawBody;
   if (hasHtml || sigHtml) {
@@ -3365,9 +3515,8 @@ function openCompose(pre = {}) {
   // Reset attachments
   _cmFiles = [];
   renderCmAtts();
-  // Load signature
-  const sig = (typeof loadSignature === 'function') ? loadSignature() : (localStorage.getItem('mm-signature') || '');
-  $('cm-sig').innerHTML = sig;
+  // Load signature with switcher
+  populateCmSigBar();
   // CC/BCC toggle
   _ccbccOpen = !!(pre.cc || pre.bcc);
   $('cm-cc-row').classList.toggle('hidden', !_ccbccOpen);
@@ -4054,8 +4203,9 @@ $('compose-btn').onclick = () => openCompose();
     });
     ['mm-theme','mm-density','mm-fontsize','mm-chips','mm-sound','mm-poll-interval',
      'mm-replymode','mm-default-tone','mm-sendconfirm','mm-ai-auto','mm-priority',
-     'mm-groq-key','mm-signature','mm-panels','mm-rb-height', ...aiKeys].forEach(k => lsDel(k));
+     'mm-groq-key','mm-signature','mm-signatures','mm-acct-accents','mm-panels','mm-rb-height', ...aiKeys].forEach(k => lsDel(k));
     applyTheme('light');
+    document.documentElement.style.removeProperty('--accent-h');
     applyDensity('normal');
     applyFontSize(13);
     applyChips(true); refreshChipStyle();
@@ -4152,75 +4302,195 @@ $('compose-btn').onclick = () => openCompose();
   }, 200);
 })();
 
-// ══ FEATURE B: Email Signature (HTML) ═════════════════════════════════════════
+// ══ FEATURE B: Email Signatures (multiple) ════════════════════════════════════
+function loadSignatures() {
+  try {
+    const raw = localStorage.getItem('mm-signatures');
+    if (raw) return JSON.parse(raw);
+    // Migrate single old signature
+    const old = localStorage.getItem('mm-signature');
+    if (old && old.trim()) {
+      const sigs = [{ id: 'sig_1', name: 'Default', html: old, isDefault: true }];
+      localStorage.setItem('mm-signatures', JSON.stringify(sigs));
+      return sigs;
+    }
+    return [];
+  } catch { return []; }
+}
+function saveSignatures(arr) {
+  try { localStorage.setItem('mm-signatures', JSON.stringify(arr)); } catch {}
+}
 function loadSignature() {
-  try { return localStorage.getItem('mm-signature') || ''; } catch { return ''; }
+  const sigs = loadSignatures();
+  const def = sigs.find(s => s.isDefault) || sigs[0];
+  return def ? def.html : '';
 }
-function saveSignature(sig) {
-  try { localStorage.setItem('mm-signature', sig); } catch {}
+function escHtml(s) {
+  return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// Show signature in reply box preview strip
+// Active sig HTML for the current reply-box session
+let _rbActiveSigHtml = '';
+
+// Populate reply box sig bar + preview (called when reply opens)
 function applySignaturePreview() {
-  const sig = loadSignature();
-  const el = $('rb-sig-preview');
-  if (el) el.innerHTML = sig || '';
+  const sigs = loadSignatures();
+  const bar  = $('rb-sig-bar');
+  const prev = $('rb-sig-preview');
+  if (!bar || !prev) return;
+  if (!sigs.length) {
+    _rbActiveSigHtml = '';
+    prev.innerHTML   = '';
+    bar.style.display = 'none';
+    return;
+  }
+  const defSig = sigs.find(s => s.isDefault) || sigs[0];
+  _rbActiveSigHtml = defSig ? defSig.html : '';
+  prev.innerHTML   = _rbActiveSigHtml;
+  const sel = $('rb-sig-select');
+  sel.innerHTML = '<option value="">— None —</option>' +
+    sigs.map(s => `<option value="${s.id}"${s.id === (defSig && defSig.id) ? ' selected' : ''}>${escHtml(s.name)}</option>`).join('');
+  bar.style.display = '';
+  sel.onchange = () => {
+    const chosen = sigs.find(s => s.id === sel.value);
+    _rbActiveSigHtml = chosen ? chosen.html : '';
+    prev.innerHTML   = _rbActiveSigHtml;
+  };
 }
 
-// Current tab in sig modal
-let _sigTab = 'visual';
+// Populate compose sig bar (called from openCompose)
+function populateCmSigBar() {
+  const sigs  = loadSignatures();
+  const bar   = $('cm-sig-bar');
+  const sigEl = $('cm-sig');
+  if (!bar || !sigEl) return;
+  if (!sigs.length) {
+    sigEl.innerHTML   = '';
+    bar.style.display = 'none';
+    return;
+  }
+  const defSig = sigs.find(s => s.isDefault) || sigs[0];
+  sigEl.innerHTML = defSig ? defSig.html : '';
+  const sel = $('cm-sig-select');
+  sel.innerHTML = '<option value="">— None —</option>' +
+    sigs.map(s => `<option value="${s.id}"${s.id === (defSig && defSig.id) ? ' selected' : ''}>${escHtml(s.name)}</option>`).join('');
+  bar.style.display = '';
+  sel.onchange = () => {
+    const chosen = sigs.find(s => s.id === sel.value);
+    sigEl.innerHTML = chosen ? chosen.html : '';
+  };
+}
+
+// ── Signatures manager ────────────────────────────────────────────────────────
+function openSigMgr() {
+  renderSigList();
+  $('sig-mgr-modal').classList.remove('hidden');
+}
+function renderSigList() {
+  const sigs  = loadSignatures();
+  const list  = $('sig-list');
+  const empty = $('sig-list-empty');
+  if (!sigs.length) {
+    list.innerHTML    = '';
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+  list.innerHTML = sigs.map(s => {
+    const preview = s.html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 90);
+    return `<div class="sig-card" data-id="${s.id}">
+      <div class="sig-card-body">
+        <div class="sig-card-name">${escHtml(s.name)}${s.isDefault ? '<span class="sig-default-badge">Default</span>' : ''}</div>
+        ${preview ? `<div class="sig-card-preview">${escHtml(preview)}</div>` : ''}
+      </div>
+      <div class="sig-card-actions">
+        ${!s.isDefault ? `<button class="sig-act-btn" onclick="_sigSetDefault('${s.id}')">Set Default</button>` : ''}
+        <button class="sig-act-btn" onclick="_sigEditOpen('${s.id}')">Edit</button>
+        <button class="sig-act-btn danger" onclick="_sigDelete('${s.id}')">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function _sigSetDefault(id) {
+  const sigs = loadSignatures().map(s => ({ ...s, isDefault: s.id === id }));
+  saveSignatures(sigs);
+  renderSigList();
+  applySignaturePreview();
+  populateCmSigBar();
+  showToast('Default signature updated.');
+}
+function _sigDelete(id) {
+  let sigs = loadSignatures().filter(s => s.id !== id);
+  if (sigs.length && !sigs.find(s => s.isDefault)) sigs[0].isDefault = true;
+  saveSignatures(sigs);
+  renderSigList();
+  applySignaturePreview();
+  populateCmSigBar();
+  showToast('Signature deleted.');
+}
+$('sig-mgr-close').onclick  = () => $('sig-mgr-modal').classList.add('hidden');
+$('sig-mgr-modal').onclick  = e => { if (e.target === $('sig-mgr-modal')) $('sig-mgr-modal').classList.add('hidden'); };
+$('sig-add-new').onclick    = () => _sigEditOpen(null);
+$('sig-open-btn').onclick   = openSigMgr;
+
+// ── Signature editor ──────────────────────────────────────────────────────────
+let _sigTab    = 'visual';
+let _sigEditId = null;   // null = creating new
+
+function _sigEditOpen(id) {
+  _sigEditId = id;
+  const sig  = id ? loadSignatures().find(s => s.id === id) : null;
+  $('sig-modal-title').textContent = id ? 'Edit Signature' : 'New Signature';
+  $('sig-name-input').value = sig ? sig.name : '';
+  const html = sig ? sig.html : '';
+  _sigTab = 'visual';
+  $('sig-tab-visual').classList.add('on');
+  $('sig-tab-html').classList.remove('on');
+  $('sig-visual-panel').classList.remove('hidden');
+  $('sig-html-panel').classList.add('hidden');
+  $('sig-editor').innerHTML = html;
+  $('sig-textarea').value   = html;
+  _sigUpdatePreview();
+  $('sig-modal').classList.remove('hidden');
+  setTimeout(() => $('sig-name-input').focus(), 80);
+}
 function _sigSwitchTab(tab) {
   _sigTab = tab;
   $('sig-tab-visual').classList.toggle('on', tab === 'visual');
   $('sig-tab-html').classList.toggle('on', tab === 'html');
   $('sig-visual-panel').classList.toggle('hidden', tab !== 'visual');
   $('sig-html-panel').classList.toggle('hidden', tab !== 'html');
-  // Sync content between panels
-  if (tab === 'html') {
-    $('sig-textarea').value = $('sig-editor').innerHTML;
-  } else {
-    $('sig-editor').innerHTML = $('sig-textarea').value;
-  }
+  if (tab === 'html') $('sig-textarea').value   = $('sig-editor').innerHTML;
+  else                $('sig-editor').innerHTML = $('sig-textarea').value;
 }
-
 function _sigUpdatePreview() {
   const html = _sigTab === 'html' ? $('sig-textarea').value : $('sig-editor').innerHTML;
   $('sig-preview-box').innerHTML = html.trim() || '<span style="color:var(--t3);font-size:11px">No signature yet</span>';
 }
-
 $('sig-tab-visual').onclick = () => _sigSwitchTab('visual');
 $('sig-tab-html').onclick   = () => _sigSwitchTab('html');
 $('sig-editor').addEventListener('input', _sigUpdatePreview);
 $('sig-textarea').addEventListener('input', _sigUpdatePreview);
-
-$('sig-open-btn').onclick = () => {
-  const saved = loadSignature();
-  _sigTab = 'visual';
-  $('sig-tab-visual').classList.add('on');
-  $('sig-tab-html').classList.remove('on');
-  $('sig-visual-panel').classList.remove('hidden');
-  $('sig-html-panel').classList.add('hidden');
-  $('sig-editor').innerHTML = saved;
-  $('sig-textarea').value = saved;
-  $('sig-preview-box').innerHTML = saved || '<span style="color:var(--t3);font-size:11px">No signature yet</span>';
-  $('sig-modal').classList.remove('hidden');
-  setTimeout(() => $('sig-editor').focus(), 80);
-};
-
-$('sig-clear').onclick = () => {
-  $('sig-editor').innerHTML = '';
-  $('sig-textarea').value = '';
-  _sigUpdatePreview();
-};
+$('sig-clear').onclick       = () => { $('sig-editor').innerHTML = ''; $('sig-textarea').value = ''; _sigUpdatePreview(); };
 $('sig-modal-close').onclick = () => $('sig-modal').classList.add('hidden');
 $('sig-cancel').onclick      = () => $('sig-modal').classList.add('hidden');
 $('sig-modal').onclick = e => { if (e.target === $('sig-modal')) $('sig-modal').classList.add('hidden'); };
 $('sig-save').onclick = () => {
-  const html = _sigTab === 'html' ? $('sig-textarea').value.trim() : $('sig-editor').innerHTML.trim();
-  saveSignature(html);
+  const name = ($('sig-name-input').value || '').trim() || 'Untitled';
+  const html = (_sigTab === 'html' ? $('sig-textarea').value : $('sig-editor').innerHTML).trim();
+  let sigs = loadSignatures();
+  if (_sigEditId) {
+    sigs = sigs.map(s => s.id === _sigEditId ? { ...s, name, html } : s);
+  } else {
+    const isDefault = !sigs.length;
+    sigs.push({ id: 'sig_' + Date.now(), name, html, isDefault });
+  }
+  saveSignatures(sigs);
+  renderSigList();
   applySignaturePreview();
+  populateCmSigBar();
   $('sig-modal').classList.add('hidden');
-  showToast('Signature saved.');
+  showToast(_sigEditId ? 'Signature updated.' : 'Signature created.');
 };
 
 // ══ FEATURE C: Desktop Notifications ═════════════════════════════════════════

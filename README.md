@@ -9,6 +9,8 @@ A desktop email client built with Electron + Node.js. Supports Gmail, Microsoft/
 - **Multiple accounts** — Gmail (OAuth), Microsoft/Outlook (OAuth), IMAP (Zoho, Yahoo, custom)
 - **AI assistant** — Summarise emails, generate replies, extract action items
 - **Multiple AI providers** — Groq, OpenAI, Anthropic, Gemini, Mistral (bring your own key)
+- **Multiple signatures** — Create named signatures (Work, Casual, …) and pick one per email, like Gmail
+- **Per-mailbox themes** — Give each account its own accent colour; the UI re-tints when you switch
 - **Background sync** — Runs in system tray, checks for new email at set intervals
 - **Notification tones** — 9 built-in sounds + custom .wav/.mp3 support
 - **Auto-updates** — New versions install automatically via GitHub Releases
@@ -20,7 +22,7 @@ A desktop email client built with Electron + Node.js. Supports Gmail, Microsoft/
 Download the latest installer from [Releases](https://github.com/Callmesupratim/mailmind/releases):
 
 ```
-Mailmind Setup x.x.x.exe
+Mailmind-Setup-x.x.x.exe
 ```
 
 Run it, follow the prompts, launch from the desktop shortcut.
@@ -155,8 +157,8 @@ git push origin master vX.X.X
 
 # 4. Publish release (users auto-update on next launch)
 gh release create vX.X.X `
-  "dist\Mailmind Setup X.X.X.exe" `
-  "dist\Mailmind Setup X.X.X.exe.blockmap" `
+  "dist\Mailmind-Setup-X.X.X.exe" `
+  "dist\Mailmind-Setup-X.X.X.exe.blockmap" `
   "dist\latest.yml" `
   --title "Mailmind X.X.X" `
   --notes "Release notes here"
