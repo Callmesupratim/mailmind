@@ -171,6 +171,7 @@ let tray          = null;
 let syncTimer     = null;
 let lastTopByAcct = null;   // Map<accountId, newestEmailId> — null until first poll baselines it
 let trayHintShown = false;
+let isQuitting    = false;   // true once we genuinely want to exit (quit/menu/auto-update) — lets the window actually close instead of hiding to tray
 let userData      = '';
 let syncSettings  = { ...DEFAULT_SYNC };
 
@@ -325,6 +326,7 @@ function updateTrayMenu() {
     {
       label: 'Quit Mailmind',
       click: () => {
+        isQuitting = true;
         tray.destroy();
         killServerProcessSync();
         app.exit(0);
@@ -453,6 +455,10 @@ app.whenReady().then(async () => {
   // window while the process stays alive, or the tray/menu recovery paths would call
   // show() on a dead window and the app becomes unrecoverable.
   win.on('close', e => {
+    // When we're genuinely quitting (tray Quit, app.quit(), or an auto-update restart),
+    // let the window close — NEVER preventDefault here, or app.quit()/quitAndInstall()
+    // gets cancelled and the installer reports "Mailmind cannot be closed".
+    if (isQuitting) return;
     const persist = syncSettings.background || syncSettings.launchOnStartup;
     if (persist) {
       e.preventDefault();
@@ -544,9 +550,10 @@ app.whenReady().then(async () => {
         autoUpdater.checkForUpdates().catch(e => sendUpdateStatus('error', e.message));
       });
       ipcMain.on('install-update', () => {
-        // Kill the server FIRST so it can't lock resources\node.exe or hold port 3000
-        // while the installer swaps files in — otherwise the update fails and the
-        // relaunched app errors out. Then hand off to the updater.
+        // Mark quitting so the window-close interceptor lets go (otherwise quitAndInstall
+        // is cancelled and the installer can't close the app). Kill the server FIRST so it
+        // can't lock resources\node.exe or hold port 3000 while the installer swaps files in.
+        isQuitting = true;
         killServerProcessSync();
         autoUpdater.quitAndInstall();
       });
@@ -581,5 +588,6 @@ app.on('window-all-closed', () => {
 // the spawned server never outlives the app (orphans hold port 3000 → EADDRINUSE /
 // launch timeout, and lock node.exe → failed updates).
 app.on('before-quit', () => {
+  isQuitting = true;   // so win.on('close') stops intercepting and the window can actually close
   killServerProcessSync();
 });
