@@ -106,8 +106,11 @@ function killStaleServer(port) {
   });
 }
 
+// ── GA4 Measurement Protocol (anonymous install analytics) ────────────────────
+const GA4_URL = 'https://www.google-analytics.com/mp/collect?measurement_id=G-15L3SXHJBY&api_secret=JnvhkILxQverlaNPa7P5oA';
+
 // ── Sync settings (background tray polling) ───────────────────────────────────
-const DEFAULT_SYNC = { background: true, intervalMin: 5, notifications: true, tone: 'builtin:mixkit-magic-notification-ring-2344.wav', launchOnStartup: false };
+const DEFAULT_SYNC = { background: true, intervalMin: 5, notifications: true, tone: 'builtin:mixkit-magic-notification-ring-2344.wav', launchOnStartup: false, analyticsEnabled: true };
 
 // ── Launch-on-Windows-startup ─────────────────────────────────────────────────
 // Registers/unregisters the app in the Windows "Run" key via Electron. Launched
@@ -163,6 +166,53 @@ function saveSyncSettings(userData, s) {
     fs.mkdirSync(userData, { recursive: true });
     fs.writeFileSync(path.join(userData, 'sync-settings.json'), JSON.stringify(s));
   } catch {}
+}
+
+// ── Anonymous usage analytics (opt-out, no PII) ────────────────────────────────
+// UUID is a random 64-hex string stored in userData/telemetry.json — never linked
+// to an email address, account, or any personal identifier. IP is used server-side
+// only to derive country code (CF-IPCountry header) and is never stored.
+function getOrCreateInstallUuid(uDir) {
+  const p = path.join(uDir, 'telemetry.json');
+  try {
+    if (fs.existsSync(p)) {
+      const d = JSON.parse(fs.readFileSync(p, 'utf8'));
+      if (typeof d.install_uuid === 'string' && /^[0-9a-f]{64}$/.test(d.install_uuid)) return d.install_uuid;
+    }
+  } catch {}
+  const uuid = crypto.randomBytes(32).toString('hex');
+  try { fs.writeFileSync(p, JSON.stringify({ install_uuid: uuid }), 'utf8'); } catch {}
+  return uuid;
+}
+
+function maybeSendTelemetry(uDir) {
+  if (!syncSettings.analyticsEnabled) return;
+  try {
+    const client_id = getOrCreateInstallUuid(uDir);
+    const payload   = JSON.stringify({
+      client_id,
+      events: [{
+        name: 'app_open',
+        params: {
+          app_version:          app.getVersion(),
+          engagement_time_msec: '1',
+        },
+      }],
+    });
+    const url = new URL(GA4_URL);
+    const req = require('https').request({
+      host: url.hostname, path: url.pathname + url.search, method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+      timeout: 8000,
+    }, res => { res.resume(); });
+    req.on('error',   () => {});
+    req.on('timeout', () => { req.destroy(); });
+    req.write(payload);
+    req.end();
+    log('GA4 ping sent v' + app.getVersion());
+  } catch (e) {
+    log('GA4 error: ' + e.message);
+  }
 }
 
 let serverProcess = null;
@@ -532,9 +582,10 @@ app.whenReady().then(async () => {
     return;
   }
 
-  // Start background polling after app loads
+  // Start background polling after app loads, and fire a one-time telemetry ping
   win.webContents.once('did-finish-load', () => {
     startSyncTimer();
+    setTimeout(() => maybeSendTelemetry(userData), 10000);
   });
 
   // ── Auto-updater ──────────────────────────────────────────────────────────────

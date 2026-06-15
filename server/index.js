@@ -1857,6 +1857,34 @@ app.post("/api/ai-settings", withAuth, (req, res) => {
 });
 
 // Express error-handling middleware (must be last, 4 args). Catches sync throws in routes
+// ── Telemetry ingest (NSSM deployment only — disabled on desktop builds) ─────
+// Enable by setting MAILMIND_ENABLE_TELEMETRY=true in the NSSM server's .env.
+// Payload: { install_uuid, app_version, os, locale, ts } — no email, no name.
+// Country is derived from the Cloudflare CF-IPCountry header; the IP itself is
+// never stored. Rate-limited to one upsert per UUID per 24 h.
+if (process.env.MAILMIND_ENABLE_TELEMETRY === 'true') {
+  app.post('/api/telemetry/ping', express.json({ limit: '1kb' }), (req, res) => {
+    try {
+      const { install_uuid, app_version, os, locale } = req.body || {};
+      if (!install_uuid || typeof install_uuid !== 'string' || !/^[0-9a-f]{64}$/.test(install_uuid))
+        return res.sendStatus(400);
+      const country = ((req.headers['cf-ipcountry'] || 'XX') + '').slice(0, 2).toUpperCase();
+      store.telemetryPing({ install_uuid, app_version, os, locale, country });
+      res.sendStatus(204);
+    } catch (e) {
+      console.error('telemetry ping error:', e.message);
+      res.sendStatus(500);
+    }
+  });
+
+  // Read-only stats — protected by MAILMIND_ADMIN_KEY header
+  app.get('/api/telemetry/stats', (req, res) => {
+    if (!process.env.MAILMIND_ADMIN_KEY || req.headers['x-admin-key'] !== process.env.MAILMIND_ADMIN_KEY)
+      return res.sendStatus(403);
+    res.json(store.telemetryStats());
+  });
+}
+
 // and malformed-JSON body-parser errors, returning JSON instead of an HTML error page.
 app.use((err, req, res, next) => {
   console.error("Unhandled route error:", err.message);

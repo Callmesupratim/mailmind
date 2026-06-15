@@ -1405,6 +1405,19 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
           </div>
         </div>
 
+        <!-- Analytics opt-out — only shown inside Electron desktop app -->
+        <div id="st-analytics-row" style="display:none">
+          <div class="st-row" style="border-bottom:none">
+            <div class="st-info">
+              <div class="st-label">Share anonymous usage data</div>
+              <div class="st-desc">Sends app version, OS, and region — no email, no mail content. Helps us improve Mailmind. <a href="/privacy.html" target="_blank" style="color:var(--accent)">Privacy policy</a></div>
+            </div>
+            <div class="st-control">
+              <label class="st-toggle"><input type="checkbox" id="st-analytics-toggle" checked><div class="st-toggle-track"></div><div class="st-toggle-thumb"></div></label>
+            </div>
+          </div>
+        </div>
+
         <!-- App update — only shown inside Electron desktop app -->
         <div id="st-update-section" style="display:none">
           <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--t3);padding:18px 0 6px;border-top:1px solid var(--bc);margin-top:4px">App Update</div>
@@ -3818,11 +3831,13 @@ $('compose-btn').onclick = () => openCompose();
       }
     }
 
+    document.getElementById('st-analytics-row').style.display = '';
     window.electronAPI.getSyncSettings().then(s => {
       _curSync = {...s};
       document.getElementById('st-bg-toggle').checked = !!s.background;
       document.getElementById('st-bg-interval').value = String(s.intervalMin || 15);
       document.getElementById('st-startup-toggle').checked = !!s.launchOnStartup;
+      document.getElementById('st-analytics-toggle').checked = s.analyticsEnabled !== false;
       setToneSelect(s.tone || 'builtin:mixkit-magic-notification-ring-2344.wav');
     }).catch(() => {});
 
@@ -3837,16 +3852,18 @@ $('compose-btn').onclick = () => openCompose();
         // mutates _curSync.notifications.
         notifications:   _curSync ? _curSync.notifications !== false : true,
         tone:            document.getElementById('st-tone-select').value,
-        launchOnStartup: document.getElementById('st-startup-toggle').checked,
+        launchOnStartup:   document.getElementById('st-startup-toggle').checked,
+        analyticsEnabled:  document.getElementById('st-analytics-toggle').checked,
       };
       _curSync = {...s};
       window.electronAPI.setSyncSettings(s);
     }
     window._pushSyncSettings = pushSyncSettings;
-    document.getElementById('st-bg-toggle').onchange      = pushSyncSettings;
-    document.getElementById('st-bg-interval').onchange    = pushSyncSettings;
-    document.getElementById('st-startup-toggle').onchange = pushSyncSettings;
-    document.getElementById('st-tone-select').onchange    = pushSyncSettings;
+    document.getElementById('st-bg-toggle').onchange        = pushSyncSettings;
+    document.getElementById('st-bg-interval').onchange      = pushSyncSettings;
+    document.getElementById('st-startup-toggle').onchange   = pushSyncSettings;
+    document.getElementById('st-tone-select').onchange      = pushSyncSettings;
+    document.getElementById('st-analytics-toggle').onchange = pushSyncSettings;
 
     document.getElementById('st-tone-preview').onclick = () => {
       const val = document.getElementById('st-tone-select').value;

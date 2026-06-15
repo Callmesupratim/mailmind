@@ -26,6 +26,16 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS app_settings (
     id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL, updated_at INTEGER
   );
+  CREATE TABLE IF NOT EXISTS telemetry (
+    install_uuid TEXT PRIMARY KEY,
+    app_version  TEXT,
+    os_platform  TEXT,
+    locale       TEXT,
+    country      TEXT,
+    first_seen   INTEGER,
+    last_seen    INTEGER,
+    ping_count   INTEGER DEFAULT 1
+  );
 `);
 
 // ── Encryption (AES-256-GCM) ───────────────────────────────────────────────────
@@ -86,6 +96,17 @@ const CACHE_TTL_MS    = 7 * 24 * 60 * 60 * 1000; // 7 days
 db.prepare("DELETE FROM ai_cache WHERE created_at < ?").run(Date.now() - CACHE_TTL_MS);
 const stmtSettingsGet = db.prepare("SELECT data FROM app_settings WHERE id = 1");
 const stmtSettingsSet = db.prepare("INSERT OR REPLACE INTO app_settings (id, data, updated_at) VALUES (1, ?, ?)");
+
+// ── Telemetry statements ───────────────────────────────────────────────────────
+const stmtTelemetryGet    = db.prepare("SELECT last_seen FROM telemetry WHERE install_uuid = ?");
+const stmtTelemetryUpsert = db.prepare(`
+  INSERT INTO telemetry (install_uuid, app_version, os_platform, locale, country, first_seen, last_seen, ping_count)
+  VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+  ON CONFLICT(install_uuid) DO UPDATE SET
+    app_version = excluded.app_version, locale = excluded.locale,
+    country = excluded.country, last_seen = excluded.last_seen,
+    ping_count = ping_count + 1
+`);
 
 function rowToAccount(row, withSecret = false) {
   if (!row) return null;
@@ -176,5 +197,27 @@ module.exports = {
     if (targetProv && apiKey) cur.keys[targetProv]   = apiKey;
     stmtSettingsSet.run(encrypt(cur), Date.now());
     return cur;
+  },
+
+  // ── Telemetry ──────────────────────────────────────────────────────────────────
+  // Returns true if the ping was recorded (new or >24 h since last), false if deduped.
+  telemetryPing({ install_uuid, app_version, os, locale, country }) {
+    const now = Date.now();
+    const existing = stmtTelemetryGet.get(install_uuid);
+    if (existing && (now - existing.last_seen) < 86400000) return false;
+    stmtTelemetryUpsert.run(install_uuid, (app_version||'').slice(0,20),
+      (os||'').slice(0,20), (locale||'').slice(0,10), (country||'XX').slice(0,2).toUpperCase(), now, now);
+    return true;
+  },
+  telemetryStats() {
+    const now = Date.now(), DAY = 86400000, MONTH = 30 * DAY;
+    return {
+      total_installs: db.prepare('SELECT COUNT(*) n FROM telemetry').get().n,
+      dau:            db.prepare('SELECT COUNT(*) n FROM telemetry WHERE last_seen > ?').get(now - DAY).n,
+      mau:            db.prepare('SELECT COUNT(*) n FROM telemetry WHERE last_seen > ?').get(now - MONTH).n,
+      by_version:     db.prepare('SELECT app_version v, COUNT(*) n FROM telemetry GROUP BY app_version ORDER BY n DESC').all(),
+      by_country:     db.prepare('SELECT country c, COUNT(*) n FROM telemetry GROUP BY country ORDER BY n DESC LIMIT 30').all(),
+      by_os:          db.prepare('SELECT os_platform o, COUNT(*) n FROM telemetry GROUP BY os_platform ORDER BY n DESC').all(),
+    };
   },
 };
