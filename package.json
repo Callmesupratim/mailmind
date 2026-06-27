@@ -1,6 +1,6 @@
 {
   "name": "mailmind",
-  "version": "1.1.12",
+  "version": "1.1.13",
   "description": "Gmail-connected AI email assistant powered by Groq",
   "author": "Phoenixtek Solution",
   "main": "main.js",
@@ -64,7 +64,7 @@
     },
     "win": {
       "icon": "icon.png",
-      "artifactName": "Mailmind-Setup-${version}.${ext}",
+      "artifactName": "Mailmind-Setup.${ext}",
       "target": [
         {
           "target": "nsis",
