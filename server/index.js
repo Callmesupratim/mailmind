@@ -1278,25 +1278,44 @@ app.get("/api/emails/:threadId", withAuth, async (req, res) => {
 
       let plain = "", html = "";
       const attachments = [];
+      // A part is an attachment if it carries a filename or an explicit
+      // Content-Disposition: attachment — the same signal Gmail's own web UI uses.
+      // This must be checked BEFORE the mimeType-based body checks below, otherwise
+      // a text/plain or text/html *file* attachment gets silently merged into the
+      // message body instead of showing up as a downloadable attachment.
+      function isAttachmentPart(part) {
+        if (part.filename && part.filename.trim()) return true;
+        const cd = (part.headers || []).find(h => h.name.toLowerCase() === "content-disposition")?.value || "";
+        return /attachment/i.test(cd);
+      }
       function walk(parts) {
         if (!parts) return;
         for (const part of parts) {
-          if (part.body?.data && part.mimeType === "text/plain") plain += decodePart(part);
-          else if (part.body?.data && part.mimeType === "text/html") html += decodePart(part);
-          else if (part.parts) walk(part.parts);
-          else if (part.body?.attachmentId) {
+          if (isAttachmentPart(part)) {
             const cdHeader = (part.headers || []).find(h => h.name.toLowerCase() === "content-disposition")?.value || "";
             const fname = cdHeader.match(/filename\*?=["']?(?:UTF-8'')?([^"';\n]+)/i)?.[1]
               || part.filename || `attachment`;
-            const bytes = part.body.size || 0;
-            attachments.push({
-              attachmentId: part.body.attachmentId,
+            const bytes = part.body?.size || 0;
+            const entry = {
               filename: decodeURIComponent(fname).trim(),
               contentType: part.mimeType || "application/octet-stream",
               size: bytes,
               sizeStr: bytes > 1048576 ? (bytes/1048576).toFixed(1)+' MB' : bytes > 1024 ? (bytes/1024).toFixed(1)+' KB' : bytes+' B',
-            });
+            };
+            if (part.body?.attachmentId) {
+              entry.attachmentId = part.body.attachmentId;
+            } else if (part.body?.data) {
+              // Gmail inlines small attachments' bytes directly with no attachmentId —
+              // there's nothing to fetch later, so hand the frontend a ready data URL.
+              const b64 = part.body.data.replace(/-/g, '+').replace(/_/g, '/');
+              entry.dataUrl = `data:${entry.contentType};base64,${b64}`;
+            }
+            attachments.push(entry);
+            continue;
           }
+          if (part.body?.data && part.mimeType === "text/plain") plain += decodePart(part);
+          else if (part.body?.data && part.mimeType === "text/html") html += decodePart(part);
+          else if (part.parts) walk(part.parts);
         }
       }
       if (msg.payload?.body?.data) {

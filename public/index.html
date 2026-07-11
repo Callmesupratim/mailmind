@@ -2291,9 +2291,11 @@ function renderDetail(thread) {
             href = `/api/attachments/microsoft/${encodeURIComponent(a.msgId)}/${encodeURIComponent(a.attachmentId)}?filename=${encodeURIComponent(a.filename)}`;
           } else {
             // Gmail
-            href = a.attachmentId
-              ? `/api/attachments/gmail/${encodeURIComponent(a.msgId)}/${encodeURIComponent(a.attachmentId)}?filename=${encodeURIComponent(a.filename)}&contentType=${encodeURIComponent(a.contentType)}`
-              : '#';
+            href = a.dataUrl
+              ? a.dataUrl
+              : a.attachmentId
+                ? `/api/attachments/gmail/${encodeURIComponent(a.msgId)}/${encodeURIComponent(a.attachmentId)}?filename=${encodeURIComponent(a.filename)}&contentType=${encodeURIComponent(a.contentType)}`
+                : '#';
           }
           const icon = (a.contentType||'').startsWith('image') ? '🖼️'
             : a.contentType === 'application/pdf' ? '📄'
