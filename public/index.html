@@ -2024,7 +2024,7 @@ async function loadEmails(append=false, silent=false, _retry=0) {
     }
   } catch(e) {
     const msg = e.name === 'AbortError' ? 'Request timed out — check your connection and retry' : e.message;
-    if (!silent) $('email-list').innerHTML = `<div class="el-empty">⚠ ${esc(msg)}</div>`;
+    if (!silent) $('email-list').innerHTML = `<div class="el-empty">⚠ ${esc(msg)}<br><button onclick="loadEmails()" style="margin-top:12px;padding:5px 14px;border-radius:6px;border:1px solid var(--bc);background:var(--p2);color:var(--t1);cursor:pointer;font-size:12px">Retry</button></div>`;
     // Network/abort errors during startup also warrant a silent retry
     if (!append && !silent && _retry < 3) {
       setTimeout(() => { if ((S.emails || []).length === 0) loadEmails(false, true, _retry + 1); }, 1200 * (_retry + 1));
@@ -2230,7 +2230,7 @@ async function selectEmail(id) {
     showAIReadyPlaceholder();
   } catch(e) {
     if (e.name === 'AbortError') return;
-    $('det-body').innerHTML = `<div style="padding:24px;color:var(--hi)">⚠ ${esc(e.message)}</div>`;
+    $('det-body').innerHTML = `<div style="padding:24px;color:var(--hi)">⚠ ${esc(e.message)}<br><button onclick="selectEmail(S.activeEmail?.id)" style="margin-top:12px;padding:5px 14px;border-radius:6px;border:1px solid var(--bc);background:var(--p2);color:var(--t1);cursor:pointer;font-size:12px">Retry</button></div>`;
   }
 }
 
@@ -2422,6 +2422,27 @@ async function hydrateAISettings() {
   } catch {}
 }
 
+// POST JSON with an abort timeout. Throws a clear Error on HTTP error or timeout
+// so callers never hang forever on a stalled provider or connection.
+async function postJSON(url, data, timeoutMs = 45000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data), signal: ctrl.signal,
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || ('Request failed (' + r.status + ')'));
+    return j;
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('Timed out — check your connection and try again');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function analyzeEmail(thread) {
   showAILoading();
   try {
@@ -2435,11 +2456,7 @@ async function analyzeEmail(thread) {
     }));
     if (!messages.length) { showAIPlaceholder(); return; }
 
-    const res = await fetch('/api/analyze', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(aiPayload({ messages, tone: S.tone })),
-    }).then(r => r.json());
-    if (res.error) throw new Error(res.error);
+    const res = await postJSON('/api/analyze', aiPayload({ messages, tone: S.tone }), 60000);
 
     const sentMap = {urgent:90, 'requires-action':68, negative:55, positive:42, neutral:35, fyi:18};
     const sKey = (res.sentiment||'neutral').toLowerCase().replace(/\s+/g, '-');
@@ -2571,6 +2588,7 @@ async function analyzeEmail(thread) {
     $('aip-data').innerHTML = `<div style="font-size:12px;color:var(--t3);text-align:center;padding:24px 16px">
       <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="opacity:.4;display:block;margin:0 auto 8px"><circle cx="8" cy="8" r="6"/><path d="M8 5v4M8 11v.5"/></svg>
       AI unavailable<br><span style="font-size:10.5px;opacity:.7">${esc(e.message)}</span>
+      <br><button onclick="analyzeEmail(S.activeThread)" style="margin-top:12px;padding:5px 14px;border-radius:6px;border:1px solid var(--bc);background:var(--p2);color:var(--t1);cursor:pointer;font-size:12px">Retry</button>
     </div>`;
     $('aip-data').classList.remove('hidden');
   }
@@ -2612,10 +2630,7 @@ async function loadQuickChips(thread) {
       from: m.from || '', date: m.date || '',
       body: (m.body || '').trim() || clientStripHtml(m.html || ''),
     }));
-    const res = await fetch('/api/quick-replies', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(aiPayload({ messages })),
-    }).then(r => r.json());
+    const res = await postJSON('/api/quick-replies', aiPayload({ messages }), 45000);
     if (!chipsEl.isConnected) return;
     if (res.error || !res.chips?.length) { $('aip-chips-wrap')?.remove(); return; }
     chipsEl.innerHTML = res.chips.map(c =>
@@ -2787,18 +2802,15 @@ $('rb-send').onclick = async () => {
   const btn = $('rb-send');
   btn.disabled = true;
   try {
-    const res = await fetch('/api/send', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        to,
-        cc: ccAll || undefined,
-        subject: 'Re: ' + (S.activeEmail.subject || ''),
-        ...(html ? { html } : { body: plainBody }),
-        inReplyTo: last?.headerMessageId,
-        threadId: S.activeThread?.threadId,
-        ...(attachments.length ? { attachments } : {}),
-      }),
-    }).then(r => r.json());
+    const res = await postJSON('/api/send', {
+      to,
+      cc: ccAll || undefined,
+      subject: 'Re: ' + (S.activeEmail.subject || ''),
+      ...(html ? { html } : { body: plainBody }),
+      inReplyTo: last?.headerMessageId,
+      threadId: S.activeThread?.threadId,
+      ...(attachments.length ? { attachments } : {}),
+    }, 30000);
     if (res.error) throw new Error(res.error);
     closeReplyBar();
     showToast('Message sent.');
@@ -2881,10 +2893,7 @@ $('cm-ai').onclick = async () => {
     const context = instr
       ? `Subject: ${$('cm-subject').value}\nTo: ${$('cm-to').value}\n\nInstruction: ${instr}`
       : `Subject: ${$('cm-subject').value}\nTo: ${$('cm-to').value}\n\nDraft a professional opening email based on the subject above.`;
-    const res = await fetch('/api/analyze', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ emailText: context, tone: S.tone, mode: 'reply' }),
-    }).then(r => r.json());
+    const res = await postJSON('/api/analyze', { emailText: context, tone: S.tone, mode: 'reply' }, 60000);
     $('cm-body').value = res.reply || '';
   } catch(e) { showToast('AI failed', false); }
   finally { btn.disabled = false; btn.innerHTML = `${IC.spark} AI Draft`; }
@@ -3541,10 +3550,7 @@ $('cm-send').onclick = async () => {
     const fromVal = $('cm-from').value;
     if (fromVal) payload.accountId = fromVal;
 
-    const res = await fetch('/api/send', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    }).then(r => r.json());
+    const res = await postJSON('/api/send', payload, 30000);
     if (res.error) throw new Error(res.error);
     $('compose-modal').classList.add('hidden');
     showToast('Message sent ✓');

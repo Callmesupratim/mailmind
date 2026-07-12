@@ -171,6 +171,7 @@ function _anthropicJson(userContent, { apiKey, model }) {
       try { const p = JSON.parse(d); if (p.error) return reject(new Error(p.error.message||JSON.stringify(p.error))); resolve(p.content?.[0]?.text || ""); }
       catch(e) { reject(new Error("Anthropic parse: " + d.slice(0,300))); }
     }); });
+    req.setTimeout(45000, () => req.destroy(new Error("AI request timed out (45s)")));
     req.on("error", reject); req.write(body); req.end();
   });
 }
@@ -207,6 +208,7 @@ function _openAIJson(userContent, { hostname, path, key, model }) {
       try { const p = JSON.parse(d); if (p.error) return reject(new Error(p.error.message||JSON.stringify(p.error))); resolve(p.choices?.[0]?.message?.content || ""); }
       catch(e) { reject(new Error("OpenAI parse: " + d.slice(0,300))); }
     }); });
+    req.setTimeout(45000, () => req.destroy(new Error("AI request timed out (45s)")));
     req.on("error", reject); req.write(body); req.end();
   });
 }
@@ -242,6 +244,7 @@ function _geminiJson(userContent, { apiKey, model }) {
       }
       catch(e) { reject(new Error("Gemini parse: " + d.slice(0,300))); }
     }); });
+    req.setTimeout(45000, () => req.destroy(new Error("AI request timed out (45s)")));
     req.on("error", reject); req.write(body); req.end();
   });
 }
@@ -478,6 +481,7 @@ async function getQuickReplies(threadContext, { provider, model, apiKey }) {
         const req = https.request({ hostname:"api.anthropic.com", path:"/v1/messages", method:"POST",
           headers:{"Content-Type":"application/json","x-api-key":resolveKey(p,apiKey),"anthropic-version":"2023-06-01","anthropic-beta":"prompt-caching-2024-07-31","Content-Length":Buffer.byteLength(b)} },
           r => { let d=""; r.on("data",c=>d+=c); r.on("end",()=>{ try{res(JSON.parse(d).content?.[0]?.text||"")}catch{res("")} }); });
+        req.setTimeout(45000, () => req.destroy(new Error("AI request timed out (45s)")));
         req.on("error",rej); req.write(b); req.end();
       });
     } else if (p === "gemini") {
@@ -488,6 +492,7 @@ async function getQuickReplies(threadContext, { provider, model, apiKey }) {
           path:`/v1beta/models/${m}:generateContent?key=${resolveKey(p,apiKey)}`, method:"POST",
           headers:{"Content-Type":"application/json","Content-Length":Buffer.byteLength(b)} },
           r => { let d=""; r.on("data",c=>d+=c); r.on("end",()=>{ try{res(JSON.parse(d).candidates?.[0]?.content?.parts?.[0]?.text||"")}catch{res("")} }); });
+        req.setTimeout(45000, () => req.destroy(new Error("AI request timed out (45s)")));
         req.on("error",rej); req.write(b); req.end();
       });
     } else {
@@ -499,6 +504,7 @@ async function getQuickReplies(threadContext, { provider, model, apiKey }) {
         const req = https.request({ hostname:h.hostname, path:h.path, method:"POST",
           headers:{"Content-Type":"application/json","Authorization":`Bearer ${resolveKey(p,apiKey)}`,"Content-Length":Buffer.byteLength(b)} },
           r => { let d=""; r.on("data",c=>d+=c); r.on("end",()=>{ try{res(JSON.parse(d).choices?.[0]?.message?.content||"")}catch{res("")} }); });
+        req.setTimeout(45000, () => req.destroy(new Error("AI request timed out (45s)")));
         req.on("error",rej); req.write(b); req.end();
       });
     }
@@ -542,7 +548,8 @@ async function callAIText(prompt, { provider, model, apiKey } = {}) {
         try { const parsed = JSON.parse(d); if (parsed.error) return reject(new Error(parsed.error.message)); resolve(parsed.content?.[0]?.text || ""); }
         catch(e) { reject(new Error("Anthropic text parse: " + d.slice(0, 300))); }
       }); });
-      req.on("error", reject); req.write(body); req.end();
+      req.setTimeout(45000, () => req.destroy(new Error("AI request timed out (45s)")));
+    req.on("error", reject); req.write(body); req.end();
     });
   }
 
@@ -561,7 +568,8 @@ async function callAIText(prompt, { provider, model, apiKey } = {}) {
         try { const parsed = JSON.parse(d); if (parsed.error) return reject(new Error(parsed.error.message || JSON.stringify(parsed.error))); resolve(parsed.candidates?.[0]?.content?.parts?.[0]?.text || ""); }
         catch(e) { reject(new Error("Gemini text parse: " + d.slice(0, 300))); }
       }); });
-      req.on("error", reject); req.write(body); req.end();
+      req.setTimeout(45000, () => req.destroy(new Error("AI request timed out (45s)")));
+    req.on("error", reject); req.write(body); req.end();
     });
   }
 
@@ -580,6 +588,7 @@ async function callAIText(prompt, { provider, model, apiKey } = {}) {
       try { const parsed = JSON.parse(d); if (parsed.error) return reject(new Error(parsed.error.message || JSON.stringify(parsed.error))); resolve(parsed.choices?.[0]?.message?.content || ""); }
       catch(e) { reject(new Error("OpenAI text parse: " + d.slice(0, 300))); }
     }); });
+    req.setTimeout(45000, () => req.destroy(new Error("AI request timed out (45s)")));
     req.on("error", reject); req.write(body); req.end();
   });
 }
@@ -1371,14 +1380,19 @@ app.post("/api/drafts", withAuth, async (req, res) => {
   }
 });
 
-const _sendRateMap = new Map();
-function checkSendRate(id) {
-  const now = Date.now(), win = 60_000, max = 10;
-  const times = (_sendRateMap.get(id) || []).filter(t => now - t < win);
+// Sliding-window per-session limiter. Returns true if the call is ALLOWED
+// (i.e. still under `max` in the trailing 60s).
+function underRate(map, id, max) {
+  const now = Date.now(), win = 60_000;
+  const times = (map.get(id) || []).filter(t => now - t < win);
   times.push(now);
-  _sendRateMap.set(id, times);
+  map.set(id, times);
   return times.length <= max;
 }
+const _sendRateMap = new Map();
+const _aiRateMap   = new Map();
+const checkSendRate = (id) => underRate(_sendRateMap, id, 10);   // sends: 10/min
+const checkAIRate   = (id) => underRate(_aiRateMap, id, 30);     // AI calls: 30/min (paid provider APIs)
 
 app.post("/api/send", withAuth, async (req, res) => {
   if (!checkSendRate(req.sessionID))
@@ -1580,6 +1594,8 @@ app.post("/api/cache/clear", withAuth, (req, res) => {
 
 // ── AI: full analysis ──────────────────────────────────────────────────────────
 app.post("/api/analyze", withAuth, async (req, res) => {
+  if (!checkAIRate(req.sessionID))
+    return res.status(429).json({ error: "Too many AI requests — wait a minute and try again" });
   try {
     let { emailText, messages, tone = "professional", mode = "full", model, provider, apiKey } = req.body;
 
@@ -1633,6 +1649,8 @@ app.post("/api/analyze", withAuth, async (req, res) => {
 // ── AI: streaming reply (SSE) ─────────────────────────────────────────────────
 // Emits:  data: {"chunk":"text"}\n\n  …  data: {"done":true}\n\n
 app.post("/api/reply/stream", withAuth, async (req, res) => {
+  if (!checkAIRate(req.sessionID))
+    return res.status(429).json({ error: "Too many AI requests — wait a minute and try again" });
   const { messages, emailText, tone = "professional", model, provider, apiKey } = req.body;
   const threadContext = messages && messages.length
     ? formatThreadContext(messages) : (emailText || "");
@@ -1642,6 +1660,8 @@ app.post("/api/reply/stream", withAuth, async (req, res) => {
 
 // ── AI: suggest reply (user describes intent, streamed) ────────────────────────
 app.post("/api/suggest-reply", withAuth, async (req, res) => {
+  if (!checkAIRate(req.sessionID))
+    return res.status(429).json({ error: "Too many AI requests — wait a minute and try again" });
   const { messages, emailText, instruction, tone, model, provider, apiKey } = req.body;
   if (!instruction) return res.status(400).json({ error: "instruction required" });
   const threadContext = messages?.length ? formatThreadContext(messages) : (emailText || "");
@@ -1688,6 +1708,8 @@ Return ONLY the email body text. No subject line. No preamble.`;
 
 // ── AI: quick reply chips ─────────────────────────────────────────────────────
 app.post("/api/quick-replies", withAuth, async (req, res) => {
+  if (!checkAIRate(req.sessionID))
+    return res.status(429).json({ error: "Too many AI requests — wait a minute and try again" });
   try {
     const { messages, emailText, model, provider, apiKey } = req.body;
     const threadContext = messages && messages.length
