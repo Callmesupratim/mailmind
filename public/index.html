@@ -2099,6 +2099,7 @@ function renderList() {
       const starEl  = email.starred ? '<span style="font-size:11px;color:var(--md)">★</span>' : '';
       const cntEl   = (email.count||0) > 1 ? '<span style="font-size:10px;color:var(--t3)">' + email.count + '</span>' : '';
       const ccEl    = email.cc ? '<span class="chip chip-cc" style="font-size:9px">CC</span>' : '';
+      const attEl   = email.hasAttachments ? '<span title="Has attachments" style="font-size:10px;color:var(--t3)">📎</span>' : '';
       const dotEl   = email.unread ? '<div class="er-dot"></div>' : '';
       const isSelected = S.selected?.has(email.id);
       const acctBadge = email._accountEmail
@@ -2129,7 +2130,7 @@ function renderList() {
           + '</div>'
           + '<div class="er-subj">' + esc(email.subject) + '</div>'
           + '<div class="er-prev">' + esc(email.snippet) + '</div>'
-          + '<div class="er-meta">' + catChip + priChip + starEl + cntEl + ccEl + acctBadge + '</div>'
+          + '<div class="er-meta">' + catChip + priChip + starEl + attEl + cntEl + ccEl + acctBadge + '</div>'
         + '</div>'
         + actBtns
         + '</div>';

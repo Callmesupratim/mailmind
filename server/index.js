@@ -1135,7 +1135,7 @@ app.get("/api/emails/all", async (req, res) => {
           const threadEmails = await Promise.all(threads.map(async t => {
             try {
               const thread = await gmail.users.threads.get({ userId: "me", id: t.id, format: "metadata",
-                metadataHeaders: ["From", "To", "Cc", "Subject", "Date"] });
+                metadataHeaders: ["From", "To", "Cc", "Subject", "Date", "Content-Type"] });
               const msgs = thread.data.messages || [];
               const first = msgs[0], last = msgs[msgs.length - 1] || first;
               const hdr = (m, n) => (m?.payload?.headers||[]).find(h=>h.name.toLowerCase()===n.toLowerCase())?.value||"";
@@ -1149,6 +1149,7 @@ app.get("/api/emails/all", async (req, res) => {
                 starred: msgs.some(m=>(m.labelIds||[]).includes("STARRED")),
                 importance: msgs.some(m=>(m.labelIds||[]).includes("IMPORTANT")) ? "high" : "normal",
                 categories: [],
+                hasAttachments: msgs.some(m => /multipart\/mixed/i.test(hdr(m, "Content-Type"))),
               };
             } catch { return null; }
           }));
@@ -1206,7 +1207,7 @@ app.get("/api/emails", withAuth, async (req, res) => {
       try {
         const thread = await req.gmail.users.threads.get({
           userId: "me", id: t.id, format: "metadata",
-          metadataHeaders: ["From", "To", "Cc", "Subject", "Date"],
+          metadataHeaders: ["From", "To", "Cc", "Subject", "Date", "Content-Type"],
         });
         const msgs = thread.data.messages || [];
         const firstMsg = msgs[0];
@@ -1237,6 +1238,10 @@ app.get("/api/emails", withAuth, async (req, res) => {
           // Gmail's own priority signal — the IMPORTANT label (yellow arrow in Gmail)
           importance: msgs.some(m => (m.labelIds || []).includes("IMPORTANT")) ? "high" : "normal",
           categories: [],
+          // metadata format can't return MIME parts, so infer attachments from the
+          // top-level Content-Type — multipart/mixed is Gmail's marker for a real
+          // (non-inline) attachment. Best-effort hint; the reader shows the exact list.
+          hasAttachments: msgs.some(m => /multipart\/mixed/i.test(hdr(m, "Content-Type"))),
         };
       } catch (threadErr) {
         console.error("Thread parse error:", t.id, threadErr.message);

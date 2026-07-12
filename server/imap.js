@@ -117,6 +117,20 @@ function fmtSize(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
+// Walk an imapflow bodyStructure tree and decide if the message carries a real
+// attachment — a part explicitly marked "attachment", or any named non-text/
+// non-multipart leaf (covers senders that omit Content-Disposition). Kept cheap
+// so it can run over a whole inbox page fetched with { bodyStructure: true }.
+function structureHasAttachment(node) {
+  if (!node) return false;
+  const disp = (node.disposition || "").toLowerCase();
+  if (disp === "attachment") return true;
+  const name = node.dispositionParameters?.filename || node.parameters?.name;
+  const type = (node.type || "").toLowerCase();
+  if (name && type !== "multipart" && type !== "text") return true;
+  return (node.childNodes || []).some(structureHasAttachment);
+}
+
 module.exports = {
   // ── Connection test (used by Add Mailbox) ──────────────────────────────────
   async testConnection(creds) {
@@ -154,7 +168,7 @@ module.exports = {
 
         const emails = [];
         for await (const msg of client.fetch(
-          slice, { envelope: true, flags: true, uid: true, headers: ['x-priority', 'importance', 'x-ms-mail-priority'] }, { uid: true }
+          slice, { envelope: true, flags: true, uid: true, bodyStructure: true, headers: ['x-priority', 'importance', 'x-ms-mail-priority'] }, { uid: true }
         )) {
           const env = msg.envelope || {};
 
@@ -180,6 +194,7 @@ module.exports = {
             unread: !msg.flags.has("\\Seen"),
             starred: msg.flags.has("\\Flagged"),
             importance,
+            hasAttachments: structureHasAttachment(msg.bodyStructure),
           });
         }
         emails.reverse();   // newest first

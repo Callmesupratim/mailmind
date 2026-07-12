@@ -100,7 +100,7 @@ function mapMsg(m) {
 
 // ── Build Graph path for listing messages ($ MUST be literal, not %24) ────────
 function buildListPath(folder, skip, filter, search) {
-  const sel = "id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,isRead,flag,categories,importance";
+  const sel = "id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,isRead,flag,categories,importance,hasAttachments";
   // Rules:
   //   • $search and $orderby cannot be combined
   //   • $filter and $orderby together cause "restriction too complex" on Exchange — omit orderby when filtering
@@ -177,6 +177,7 @@ module.exports = {
       starred: m.flag?.flagStatus === "flagged",
       importance: m.importance || "normal",
       categories: m.categories || [],
+      hasAttachments: !!m.hasAttachments,
     }));
 
     // No paging for search results — $skip is unsupported with $search
