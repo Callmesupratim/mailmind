@@ -8,6 +8,11 @@ const https = require("https");
 
 const PAGE_SIZE = 100;
 
+// Escape a value for safe use inside a single-quoted OData string literal.
+// OData escapes a literal single quote by doubling it; encodeURIComponent does NOT,
+// so an unescaped ' in a user-controlled id would break the $filter or alter its logic.
+const odataStr = (v) => String(v == null ? '' : v).replace(/'/g, "''");
+
 // ── Raw HTTP helpers ──────────────────────────────────────────────────────────
 function graphRequest(token, method, path, body, extraHeaders) {
   const bodyStr = body ? JSON.stringify(body) : null;
@@ -136,7 +141,7 @@ module.exports = {
     else if (/is:starred/i.test(q))
       filter = "flag/flagStatus eq 'flagged'";
     else if (/cc:me/i.test(q) && selfEmail)
-      filter = `ccRecipients/any(r:r/emailAddress/address eq '${selfEmail}')`;
+      filter = `ccRecipients/any(r:r/emailAddress/address eq '${odataStr(selfEmail)}')`;
     else if (q && !/^in:/i.test(q))
       search = q;   // free-text search (not a folder directive)
 
@@ -183,7 +188,7 @@ module.exports = {
   async getThread(token, conversationId) {
     // $filter + $orderby together → "InefficientFilter / too complex" on Exchange.
     // Fetch without $orderby and sort by receivedDateTime in JS instead.
-    const filter = encodeURIComponent(`conversationId eq '${conversationId}'`);
+    const filter = encodeURIComponent(`conversationId eq '${odataStr(conversationId)}'`);
     const sel    = "id,subject,from,toRecipients,ccRecipients,receivedDateTime,body,internetMessageId,isRead";
     const path   = `/me/messages?$filter=${filter}&$select=${sel}&$top=50&$expand=attachments`;
 
@@ -204,7 +209,7 @@ module.exports = {
 
   // ── Flags ────────────────────────────────────────────────────────────────────
   async setRead(token, conversationId, read = true) {
-    const filter = encodeURIComponent(`conversationId eq '${conversationId}'`);
+    const filter = encodeURIComponent(`conversationId eq '${odataStr(conversationId)}'`);
     const data = await gGet(token, `/me/messages?$filter=${filter}&$select=id`);
     await Promise.all((data.value || []).map(m =>
       gPatch(token, `/me/messages/${m.id}`, { isRead: read }).catch(() => {})
@@ -213,7 +218,7 @@ module.exports = {
   },
 
   async setStar(token, conversationId, star = true) {
-    const filter = encodeURIComponent(`conversationId eq '${conversationId}'`);
+    const filter = encodeURIComponent(`conversationId eq '${odataStr(conversationId)}'`);
     const data = await gGet(token, `/me/messages?$filter=${filter}&$select=id`);
     await Promise.all((data.value || []).map(m =>
       gPatch(token, `/me/messages/${m.id}`, {
@@ -225,7 +230,7 @@ module.exports = {
 
   // ── Move to folder ────────────────────────────────────────────────────────────
   async archive(token, conversationId) {
-    const filter = encodeURIComponent(`conversationId eq '${conversationId}'`);
+    const filter = encodeURIComponent(`conversationId eq '${odataStr(conversationId)}'`);
     const data = await gGet(token, `/me/messages?$filter=${filter}&$select=id`);
     await Promise.all((data.value || []).map(m =>
       gPost(token, `/me/messages/${m.id}/move`, { destinationId: "archive" }).catch(() => {})
@@ -234,7 +239,7 @@ module.exports = {
   },
 
   async trash(token, conversationId) {
-    const filter = encodeURIComponent(`conversationId eq '${conversationId}'`);
+    const filter = encodeURIComponent(`conversationId eq '${odataStr(conversationId)}'`);
     const data = await gGet(token, `/me/messages?$filter=${filter}&$select=id`);
     await Promise.all((data.value || []).map(m =>
       gPost(token, `/me/messages/${m.id}/move`, { destinationId: "deleteditems" }).catch(() => {})
@@ -270,7 +275,7 @@ module.exports = {
     // Graph's /reply endpoint — this keeps the conversation thread intact.
     if (inReplyTo) {
       try {
-        const filter = encodeURIComponent(`internetMessageId eq '${inReplyTo}'`);
+        const filter = encodeURIComponent(`internetMessageId eq '${odataStr(inReplyTo)}'`);
         const search = await gGet(token, `/me/messages?$filter=${filter}&$select=id&$top=1`);
         const orig = search.value?.[0];
         if (orig) {

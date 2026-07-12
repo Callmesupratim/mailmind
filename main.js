@@ -628,9 +628,21 @@ app.whenReady().then(async () => {
     ipcMain.handle('check-for-updates', () => sendUpdateStatus('error', 'Auto-update only works in the installed app.'));
   }
 
-  // Open all target="_blank" links in the system browser
+  // Open target="_blank" links in the system browser — but ONLY web/mail schemes.
+  // Email bodies render in a sandboxed iframe that can spawn popups, so a sender-
+  // controlled link reaches here. Without a scheme allowlist, openExternal would
+  // launch file://, smb://, or any registered protocol handler on the user's machine.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    try {
+      const proto = new URL(url).protocol;
+      if (proto === 'http:' || proto === 'https:' || proto === 'mailto:') {
+        shell.openExternal(url);
+      } else {
+        log('blocked openExternal for non-web scheme: ' + proto);
+      }
+    } catch (e) {
+      log('blocked openExternal for invalid URL');
+    }
     return { action: 'deny' };
   });
 });
