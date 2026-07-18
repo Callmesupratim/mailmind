@@ -701,7 +701,8 @@ async function refreshMicrosoftToken(refreshToken) {
   const data = await msPost({
     grant_type: "refresh_token",
     client_id: process.env.MICROSOFT_CLIENT_ID,
-    client_secret: process.env.MICROSOFT_CLIENT_SECRET,
+    // Optional: refresh-token grants need no secret on a public-client registration
+    ...(process.env.MICROSOFT_CLIENT_SECRET ? { client_secret: process.env.MICROSOFT_CLIENT_SECRET } : {}),
     refresh_token: refreshToken,
     scope: MS_SCOPES,
   });
@@ -712,11 +713,22 @@ async function refreshMicrosoftToken(refreshToken) {
   };
 }
 
+// ── PKCE (RFC 7636) ───────────────────────────────────────────────────────────
+// Both OAuth flows use PKCE so the authorization code is useless if intercepted.
+// This also lets the app run as a PUBLIC client (no client secret shipped in the
+// installer) once the Google/Azure registrations are set to desktop/public type —
+// the client_secret is only sent when present in the environment.
+function generatePkcePair() {
+  const verifier = crypto.randomBytes(32).toString("base64url");
+  const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
+  return { verifier, challenge };
+}
+
 // ── Google OAuth ──────────────────────────────────────────────────────────────
 function makeOAuth2Client() {
   return new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
+    process.env.GOOGLE_CLIENT_SECRET || undefined,   // absent → public-client (PKCE-only) flow
     "http://localhost:3000/auth/callback"
   );
 }
@@ -791,6 +803,8 @@ app.get("/api/version", (req, res) => res.json({ version: _appVersion }));
 // ── Auth routes ───────────────────────────────────────────────────────────────
 app.get("/auth/login", (req, res) => {
   const oauth2 = makeOAuth2Client();
+  const pkce = generatePkcePair();
+  req.session.googlePkceVerifier = pkce.verifier;
   const url = oauth2.generateAuthUrl({
     access_type: "offline", prompt: "consent",
     scope: [
@@ -798,6 +812,8 @@ app.get("/auth/login", (req, res) => {
       "https://www.googleapis.com/auth/gmail.compose",  // drafts + send
       "https://www.googleapis.com/auth/userinfo.email",
     ],
+    code_challenge_method: "S256",
+    code_challenge: pkce.challenge,
   });
   res.redirect(url);
 });
@@ -808,7 +824,9 @@ app.get("/auth/callback", async (req, res) => {
   if (!code) return res.redirect("/?error=no_code");
   try {
     const oauth2 = makeOAuth2Client();
-    const { tokens } = await oauth2.getToken(code);
+    const codeVerifier = req.session.googlePkceVerifier;
+    delete req.session.googlePkceVerifier;
+    const { tokens } = await oauth2.getToken(codeVerifier ? { code, codeVerifier } : code);
     let email = null;
     try {
       oauth2.setCredentials(tokens);
@@ -830,6 +848,8 @@ app.get("/auth/microsoft", (req, res) => {
     "MICROSOFT_CLIENT_ID is not set in .env.<br>Please register an Azure app and add the credentials — see the setup guide."
   );
   const redirectUri = process.env.MICROSOFT_REDIRECT_URI || "http://localhost:3000/auth/microsoft/callback";
+  const pkce = generatePkcePair();
+  req.session.msPkceVerifier = pkce.verifier;
   const params = new URLSearchParams({
     client_id: clientId,
     response_type: "code",
@@ -837,6 +857,8 @@ app.get("/auth/microsoft", (req, res) => {
     scope: MS_SCOPES,
     response_mode: "query",
     prompt: "select_account",          // always show account picker
+    code_challenge: pkce.challenge,
+    code_challenge_method: "S256",
   });
   res.redirect(MS_TENANT_URL + "/authorize?" + params.toString());
 });
@@ -847,10 +869,15 @@ app.get("/auth/microsoft/callback", async (req, res) => {
   if (!code) return res.redirect("/?error=no_code_returned");
   try {
     const redirectUri = process.env.MICROSOFT_REDIRECT_URI || "http://localhost:3000/auth/microsoft/callback";
+    const codeVerifier = req.session.msPkceVerifier;
+    delete req.session.msPkceVerifier;
     const data = await msPost({
       grant_type: "authorization_code",
       client_id: process.env.MICROSOFT_CLIENT_ID,
-      client_secret: process.env.MICROSOFT_CLIENT_SECRET,
+      // Public-client (no secret in env) works once the Azure registration's
+      // platform is "Mobile and desktop applications" with public flows allowed.
+      ...(process.env.MICROSOFT_CLIENT_SECRET ? { client_secret: process.env.MICROSOFT_CLIENT_SECRET } : {}),
+      ...(codeVerifier ? { code_verifier: codeVerifier } : {}),
       code,
       redirect_uri: redirectUri,
       scope: MS_SCOPES,
