@@ -99,6 +99,15 @@ const SYSTEM_PROMPT = _SYSTEM_BASE + `\n• Output strict JSON only — no markd
 // Used for streaming text reply calls — must return plain text, NOT JSON
 const STREAM_SYSTEM_PROMPT = _SYSTEM_BASE + `\n• Return ONLY plain email body text — absolutely no JSON, no curly braces, no field names, no markdown, no code blocks`;
 
+// Used for inbox-wide bulk categorization — a much lighter task than thread
+// analysis, so it gets its own small, cheap system prompt rather than _SYSTEM_BASE.
+const BATCH_CLASSIFY_SYSTEM =
+`You are a fast email triage classifier. For each email given (id, sender, subject, snippet),
+assign exactly one category: "work", "financial", "shopping", "promotional", or "spam".
+Use "work" for anything that doesn't clearly fit the other four — professional correspondence,
+personal messages, government/security notices, and anything ambiguous all default to "work".
+Output strict JSON only — no markdown fences, no explanations outside JSON.`;
+
 // ── Route table (used by analysis, streaming, quick-replies) ──────────────────
 const OPENAI_HOSTS = {
   openai:  { hostname: "api.openai.com",   path: "/v1/chat/completions"        },
@@ -154,11 +163,34 @@ async function callAnalysis(threadContext, { provider, model, apiKey, tone }) {
   return _openAIJson(userContent, { ...h, key: resolveKey(p, apiKey), model: m });
 }
 
+// ── Batch inbox-wide categorization — one call classifies many emails ────────
+// items: [{id, sender, subject, snippet}]. Returns [{id, category}].
+async function classifyBatch(items, { provider, model, apiKey }) {
+  const p = (provider || DEFAULT_PROVIDER).toLowerCase();
+  const m = resolveModel(p, model);
+  const userContent = `Classify each email below. Return ONLY valid JSON: {"results":[{"id":"<id>","category":"work|financial|shopping|promotional|spam"}]}\n\nEMAILS:\n` +
+    JSON.stringify(items.map(it => ({
+      id: it.id,
+      sender: (it.sender || "").slice(0, 200),
+      subject: (it.subject || "").slice(0, 200),
+      snippet: (it.snippet || "").slice(0, 300),
+    })));
+
+  let text;
+  if (p === "anthropic") text = await _anthropicJson(userContent, { apiKey: resolveKey(p, apiKey), model: m, system: BATCH_CLASSIFY_SYSTEM });
+  else if (p === "gemini") text = await _geminiJson(userContent, { apiKey: resolveKey(p, apiKey), model: m, system: BATCH_CLASSIFY_SYSTEM });
+  else { const h = OPENAI_HOSTS[p] || OPENAI_HOSTS.groq; text = await _openAIJson(userContent, { ...h, key: resolveKey(p, apiKey), model: m, system: BATCH_CLASSIFY_SYSTEM }); }
+
+  const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] || text);
+  const VALID = new Set(["work", "financial", "shopping", "promotional", "spam"]);
+  return (parsed.results || []).filter(r => r && r.id && VALID.has(r.category));
+}
+
 // Anthropic: prompt-cached system block + temperature 0.1 for deterministic JSON
-function _anthropicJson(userContent, { apiKey, model }) {
+function _anthropicJson(userContent, { apiKey, model, system = SYSTEM_PROMPT }) {
   const body = JSON.stringify({
     model, max_tokens: 2048, temperature: 0.1,
-    system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+    system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: userContent }],
   });
   return new Promise((resolve, reject) => {
@@ -181,22 +213,22 @@ function _anthropicJson(userContent, { apiKey, model }) {
 function _isReasoning(model) { return /^o\d/i.test(model); }
 function _isO1(model)        { return /^o1/i.test(model); }
 
-function _openAIJson(userContent, { hostname, path, key, model }) {
+function _openAIJson(userContent, { hostname, path, key, model, system = SYSTEM_PROMPT }) {
   let bodyObj;
   if (_isReasoning(model)) {
     bodyObj = {
       model, max_completion_tokens: 4096,
       messages: _isO1(model)
         // o1 has no system role — merge prompts into a single user message
-        ? [{ role: "user", content: SYSTEM_PROMPT + "\n\n" + userContent }]
-        : [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: userContent }],
+        ? [{ role: "user", content: system + "\n\n" + userContent }]
+        : [{ role: "system", content: system }, { role: "user", content: userContent }],
       ...(_isO1(model) ? {} : { response_format: { type: "json_object" } }),
     };
   } else {
     bodyObj = {
       model, temperature: 0.1, max_tokens: 2048,
       response_format: { type: "json_object" },
-      messages: [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: userContent }],
+      messages: [{ role: "system", content: system }, { role: "user", content: userContent }],
     };
   }
   const body = JSON.stringify(bodyObj);
@@ -214,10 +246,10 @@ function _openAIJson(userContent, { hostname, path, key, model }) {
 }
 
 // Gemini: systemInstruction + responseMimeType "application/json"
-function _geminiJson(userContent, { apiKey, model }) {
+function _geminiJson(userContent, { apiKey, model, system = SYSTEM_PROMPT }) {
   const body = JSON.stringify({
     contents: [{ parts: [{ text: userContent }] }],
-    systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+    systemInstruction: { parts: [{ text: system }] },
     generationConfig: {
       responseMimeType: "application/json", temperature: 0.1,
       maxOutputTokens: 4096,        // headroom so the JSON answer isn't truncated
@@ -611,6 +643,23 @@ function htmlToText(html) {
     .replace(/ *\n */g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+// Extract the bare address out of a "Name <addr@host>" From/To header value
+function extractEmail(addr) {
+  const m = String(addr || "").match(/<([^>]+)>/);
+  return (m ? m[1] : addr || "").trim().toLowerCase();
+}
+
+// Record every sender in a fetched list against the sender-relationship table
+// and attach each email's known relationship stats + bulk-mail signal.
+function enrichWithSenderStats(accountId, emails) {
+  for (const e of emails) {
+    const senderEmail = extractEmail(e.sender);
+    try { store.recordSenderSeen(accountId, senderEmail, e.id, e._sortTs || Date.now()); } catch {}
+    try { e.senderStats = store.getSenderStats(accountId, senderEmail); } catch { e.senderStats = null; }
+  }
+  return emails;
 }
 
 // ── Build a base64url-encoded RFC 822 message (uses nodemailer MailComposer) ──
@@ -1171,7 +1220,7 @@ app.get("/api/emails/all", async (req, res) => {
           const threadEmails = await Promise.all(threads.map(async t => {
             try {
               const thread = await gmail.users.threads.get({ userId: "me", id: t.id, format: "metadata",
-                metadataHeaders: ["From", "To", "Cc", "Subject", "Date", "Content-Type"] });
+                metadataHeaders: ["From", "To", "Cc", "Subject", "Date", "Content-Type", "List-Unsubscribe", "Precedence"] });
               const msgs = thread.data.messages || [];
               const first = msgs[0], last = msgs[msgs.length - 1] || first;
               const hdr = (m, n) => (m?.payload?.headers||[]).find(h=>h.name.toLowerCase()===n.toLowerCase())?.value||"";
@@ -1186,6 +1235,9 @@ app.get("/api/emails/all", async (req, res) => {
                 importance: msgs.some(m=>(m.labelIds||[]).includes("IMPORTANT")) ? "high" : "normal",
                 categories: [],
                 hasAttachments: msgs.some(m => /multipart\/mixed/i.test(hdr(m, "Content-Type"))),
+                // Bulk-mail signal — List-Unsubscribe / Precedence: bulk mark automated/marketing
+                // mail far more reliably than keyword matching on subject/snippet.
+                isBulk: msgs.some(m => hdr(m, "List-Unsubscribe") || /bulk/i.test(hdr(m, "Precedence"))),
               };
             } catch { return null; }
           }));
@@ -1194,6 +1246,7 @@ app.get("/api/emails/all", async (req, res) => {
 
         // Tag every email with its originating account
         emails.forEach(e => { e._accountId = acc.id; e._accountEmail = acc.email; e._accountType = acc.type; });
+        try { enrichWithSenderStats(acc.id, emails); } catch {}
         allEmails.push(...emails);
       } catch (e) {
         console.error(`All Mail — account ${acc.id} (${acc.email}):`, e.message);
@@ -1213,10 +1266,14 @@ app.get("/api/emails/all", async (req, res) => {
 app.get("/api/emails", withAuth, async (req, res) => {
   try {
     if (req.account.type === "microsoft") {
-      return res.json(await graph.list(req.graphToken, req.account.email, { q: req.query.q || "in:inbox", pageToken: req.query.pageToken }));
+      const result = await graph.list(req.graphToken, req.account.email, { q: req.query.q || "in:inbox", pageToken: req.query.pageToken });
+      try { enrichWithSenderStats(req.account.id, result.emails || []); } catch {}
+      return res.json(result);
     }
     if (req.account.type === "imap") {
-      return res.json(await imap.list(req.account.secret, { q: req.query.q || "in:inbox", pageToken: req.query.pageToken }));
+      const result = await imap.list(req.account.secret, { q: req.query.q || "in:inbox", pageToken: req.query.pageToken });
+      try { enrichWithSenderStats(req.account.id, result.emails || []); } catch {}
+      return res.json(result);
     }
     const { q = "in:inbox", maxResults = 100, pageToken } = req.query;
     const wantCount = Math.min(parseInt(maxResults) || 100, 200);
@@ -1243,7 +1300,7 @@ app.get("/api/emails", withAuth, async (req, res) => {
       try {
         const thread = await req.gmail.users.threads.get({
           userId: "me", id: t.id, format: "metadata",
-          metadataHeaders: ["From", "To", "Cc", "Subject", "Date", "Content-Type"],
+          metadataHeaders: ["From", "To", "Cc", "Subject", "Date", "Content-Type", "List-Unsubscribe", "Precedence"],
         });
         const msgs = thread.data.messages || [];
         const firstMsg = msgs[0];
@@ -1278,6 +1335,9 @@ app.get("/api/emails", withAuth, async (req, res) => {
           // top-level Content-Type — multipart/mixed is Gmail's marker for a real
           // (non-inline) attachment. Best-effort hint; the reader shows the exact list.
           hasAttachments: msgs.some(m => /multipart\/mixed/i.test(hdr(m, "Content-Type"))),
+          // Bulk-mail signal — List-Unsubscribe / Precedence: bulk mark automated/marketing
+          // mail far more reliably than keyword matching on subject/snippet.
+          isBulk: msgs.some(m => hdr(m, "List-Unsubscribe") || /bulk/i.test(hdr(m, "Precedence"))),
         };
       } catch (threadErr) {
         console.error("Thread parse error:", t.id, threadErr.message);
@@ -1287,6 +1347,7 @@ app.get("/api/emails", withAuth, async (req, res) => {
     // Re-sort by Gmail internalDate desc (reliable epoch-ms; falls back to Date header parse).
     const out = emails.filter(Boolean).sort((a, b) =>
       (b._sortTs || Date.parse(b.date) || 0) - (a._sortTs || Date.parse(a.date) || 0));
+    try { enrichWithSenderStats(req.account.id, out); } catch {}
     res.json({ emails: out, nextPageToken });
   } catch (e) {
     console.error("List emails error:", e.message);
@@ -1427,6 +1488,13 @@ app.post("/api/send", withAuth, async (req, res) => {
   try {
     const { threadId, to, cc, bcc, subject, body, html, inReplyTo, references, attachments } = req.body;
     if (!to) return res.status(400).json({ error: "recipient required" });
+
+    // Sending to someone is the strongest "this sender matters to me" signal —
+    // feeds the relationship score used for inbox priority ranking.
+    try {
+      String(to).split(",").map(extractEmail).filter(Boolean)
+        .forEach(addr => store.recordSenderReply(req.account.id, addr));
+    } catch {}
 
     if (req.account.type === "microsoft") {
       await graph.send(req.graphToken, { to, cc, bcc, subject, body, html, inReplyTo, attachments });
@@ -1617,6 +1685,41 @@ app.get("/api/attachments/microsoft/:msgId/:attId", withAuth, async (req, res) =
 app.post("/api/cache/clear", withAuth, (req, res) => {
   try { store.clearCache(); res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── AI: batch inbox categorization ────────────────────────────────────────────
+// Client sends only the emails its own regex categorizer is uncertain about
+// (the "default → work" bucket); each is cached by message id (ai_cache, 7-day
+// TTL like the rest of the AI cache) so it's only re-classified once per week
+// no matter how many times it's re-fetched by later polls or across sessions.
+app.post("/api/classify-batch", withAuth, async (req, res) => {
+  if (!checkAIRate(req.sessionID))
+    return res.status(429).json({ error: "Too many AI requests — wait a minute and try again" });
+  try {
+    const { items, model, provider, apiKey } = req.body;
+    if (!Array.isArray(items) || !items.length) return res.json({ categories: {} });
+
+    const categories = {};
+    const uncached = [];
+    for (const it of items.slice(0, 100)) {
+      if (!it || !it.id) continue;
+      const hit = store.getCache(`aicat:${it.id}`);
+      if (hit) categories[it.id] = hit;
+      else uncached.push(it);
+    }
+
+    if (uncached.length) {
+      const results = await classifyBatch(uncached, { provider, model, apiKey });
+      for (const r of results) {
+        categories[r.id] = r.category;
+        store.setCache(`aicat:${r.id}`, r.category);
+      }
+    }
+    res.json({ categories });
+  } catch (e) {
+    console.error("Classify-batch error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ── AI: full analysis ──────────────────────────────────────────────────────────

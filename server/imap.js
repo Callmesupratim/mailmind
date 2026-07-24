@@ -168,7 +168,8 @@ module.exports = {
 
         const emails = [];
         for await (const msg of client.fetch(
-          slice, { envelope: true, flags: true, uid: true, bodyStructure: true, headers: ['x-priority', 'importance', 'x-ms-mail-priority'] }, { uid: true }
+          slice, { envelope: true, flags: true, uid: true, bodyStructure: true,
+            headers: ['x-priority', 'importance', 'x-ms-mail-priority', 'list-unsubscribe', 'precedence'] }, { uid: true }
         )) {
           const env = msg.envelope || {};
 
@@ -180,6 +181,15 @@ module.exports = {
             const msp  = (msg.headers?.get('x-ms-mail-priority')?.[0] || '').trim().toLowerCase();
             if (/^[12]$/.test(xpri) || imp === 'high' || imp === 'urgent' || msp === 'high') importance = 'high';
             else if (/^[45]$/.test(xpri) || imp === 'low') importance = 'low';
+          } catch {}
+
+          // Bulk-mail signal — List-Unsubscribe / Precedence: bulk mark automated/marketing
+          // mail far more reliably than keyword matching on subject/snippet.
+          let isBulk = false;
+          try {
+            const listUnsub = (msg.headers?.get('list-unsubscribe')?.[0] || '').trim();
+            const precedence = (msg.headers?.get('precedence')?.[0] || '').trim().toLowerCase();
+            isBulk = !!listUnsub || precedence === 'bulk';
           } catch {}
 
           emails.push({
@@ -195,6 +205,7 @@ module.exports = {
             starred: msg.flags.has("\\Flagged"),
             importance,
             hasAttachments: structureHasAttachment(msg.bodyStructure),
+            isBulk,
           });
         }
         emails.reverse();   // newest first

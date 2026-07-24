@@ -1853,7 +1853,10 @@ function buildQ() {
 }
 
 // ── Email categorisation — India-aware 9-category system ────────────────────
-function categorize(email) {
+// categorizeRegex() reports whether a rule actually matched ("confident") vs.
+// fell through to the default — the fallthrough bucket is what gets sent to
+// the AI batch classifier (see classifyUncertainEmails below).
+function categorizeRegex(email) {
   const subj   = (email.subject  || '').toLowerCase();
   const sender = (email.sender   || '').toLowerCase();
   const snip   = (email.snippet  || '').toLowerCase();
@@ -1861,68 +1864,127 @@ function categorize(email) {
   const dom    = sender.match(/@([a-z0-9.\-]+)/)?.[1] || '';
 
   // Use Outlook categories if already tagged
-  if ((email.categories||[]).some(function(x){return /financ|invoice|payment|bank|upi/i.test(x);})) return 'financial';
-  if ((email.categories||[]).some(function(x){return /work|project|hr|jira/i.test(x);}))           return 'work';
-  if ((email.categories||[]).some(function(x){return /promo|market|newsletter|offer/i.test(x);}))  return 'promotional';
+  if ((email.categories||[]).some(function(x){return /financ|invoice|payment|bank|upi/i.test(x);})) return {cat:'financial', confident:true};
+  if ((email.categories||[]).some(function(x){return /work|project|hr|jira/i.test(x);}))           return {cat:'work', confident:true};
+  if ((email.categories||[]).some(function(x){return /promo|market|newsletter|offer/i.test(x);}))  return {cat:'promotional', confident:true};
 
   // 1. SECURITY - OTP, login alerts → treat as Work (no dedicated tab)
   if (/otp|one.time.pass|two.factor|2fa|login.attempt|new.device.sign|account.locked|suspicious.activ|sign-?in.attempt|verify.your.email|password.reset|authentication.code|security.alert|unusual.activ|new.sign.?in|ekyc/i.test(all)
     || /security@|alerts@/.test(sender) || /donotreply@.*bank|noreply@.*bank|noreply@.*pay/.test(sender))
-    return 'work';
+    return {cat:'work', confident:true};
 
   // 2. GOVERNMENT - .gov.in, IRCTC, EPFO, UIDAI, NSDL → treat as Work
   if (/\.gov\.in$|irctc\.co\.in$|epfindia\.|uidai\.|incometax\.|cbdt\.|digilocker\.|nsdl\.co\.in$|tracmail\./.test(dom)
     || /itr.filed|itr.refund|\bitr\b|assessment.year|pnr.no|\bpnr\b|e-?ticket|irctc.booking|epf.withdrawal|\buan\b|uan.passbook|aadhaar.update|digilocker|jan.dhan|notice.under.section|form.26as|ais.statement|traces.refund|income.tax.return|gst.notice|demand.notice|intimation.under.section/i.test(all))
-    return 'work';
+    return {cat:'work', confident:true};
 
   // 3. FINANCIAL - banks, UPI, investments, invoices
   if (/sbi\.co\.in|hdfcbank|icicibank|axisbank|kotakbank|pnb\.co\.in|bankofbaroda|idfcfirstbank|yesbank|phonepe|gpay\.com|paytm|bhim|razorpay|instamojo|stripe|paypal|zerodha|groww\.in|upstox|angelone|quickbooks|xero|zoho\.books/.test(dom)
     || /sbi|hdfc|icici|axis.bank|kotak|phonepe|gpay|paytm|bhim|razorpay|instamojo|zerodha|groww|upstox|angel.one/.test(sender)
     || /upi |neft|rtgs|imps|nach|debited|credited|transaction.id|emi |loan.statement|interest.rate|outstanding.amount|account.balance|form.16|tds.certif|gst.invoice|mutual.fund| sip |nav |folio.no|portfolio.value|invoice|payment.due|overdue|wire.transfer|salary.credit|payslip|ctc /i.test(all)
     || /[₹$]\s*\d|account.xxxx|card.ending|account.no.*\d{4}/i.test(all))
-    return 'financial';
+    return {cat:'financial', confident:true};
 
   // 4. WORK / PROFESSIONAL - tools, job portals, office keywords
   if (/workday|bamboohr|greenhouse|atlassian|jira|asana|notion|github|gitlab|bitbucket|slack|confluence|trello|monday\.com|freshdesk|zoho\.com|naukri|internshala|apna\.co|instahyre|linkedin\.com/i.test(sender)
     || /offer.letter|annual.ctc|appraisal|increment|payslip|pf.account|esic|joining.date|relieving.letter|meeting.agenda|action.item|deliverable|milestone|project.proposal|performance.review|kpi|okr|please.revert|do.the.needful|as.discussed|per.our.call|follow.up.*meeting|wfh|work.from.home|pull.request|code.review|sprint|standup|deployment/i.test(all))
-    return 'work';
+    return {cat:'work', confident:true};
 
   // 5. SHOPPING / ORDERS - e-commerce, delivery
   if (/flipkart|amazon\.in|meesho|myntra|nykaa|ajio|snapdeal|bigbasket|blinkit|zepto|jiomart|ebay|etsy|shopify/i.test(sender)
     || /order.confirm|order.placed|order.shipped|out.for.delivery|delivered.success|has.been.delivered|delivery.by|your.package|tracking.number|estimated.delivery|delhivery|bluedart|ekart|dtdc|cash.on.delivery|cod |return.request|replacement.init|refund.initiat|dispatched|shipment.detail|track.your.order/i.test(all))
-    return 'shopping';
+    return {cat:'shopping', confident:true};
 
   // 6. SPAM - fraud, fake KYC, prize scams
   if (/you.?ve.been.selected|you.have.won|claim.your.prize|free.gift.*click|winner.*selected|lottery.*won|crore.*won|lakh.*prize|account.*blocked.*kyc|update.*kyc.*immediately|aadhaar.*suspend|rbi.*freeze/i.test(all)
     || /!!!/.test(subj) && /free|win|prize|lottery|selected|congratul/i.test(subj))
-    return 'spam';
+    return {cat:'spam', confident:true};
 
   // 7. NEWSLETTER / SUBSCRIPTIONS → merge into Promos
   if (/substack\.com|mailchimp|convertkit|beehiiv|constantcontact|sendgrid|theken\.com|theken\.co|finshots\.in|morningcontext|moneycontrol|economictimes|livemint|theprint|thewire|scroll\.in/i.test(sender)
     || /morning.digest|weekly.wrap|today.s.briefing|newsletter|bulletin|roundup|this.week|morning.brief|daily.brief|issue.#|view.in.browser|you.?re.receiving.this|manage.your.subscri|unsubscribe.here/i.test(all))
-    return 'promotional';
+    return {cat:'promotional', confident:true};
 
   // 8. PROMOTIONS / MARKETING - offers, discounts, festive sales
   if (/zomato\.com|swiggy\.com|ola\.com|uber\.com|makemytrip\.com|yatra\.com|goibibo|cleartrip|jio\.com|airtel\.in|vi\.in|bsnl|offers@|deals@|marketing@|promo@|promotions@/i.test(sender)
     || /\d+\s*%\s*(off|discount)|cashback|coupon.code|use.code|flat.\u20B9|upto.\u20B9|limited.offer|today.only|don.?t.miss|festive.sale|big.billion|great.indian.sale|end.of.reason|flash.sale|shop.now|claim.your.offer|expires.soon|black.friday|recharge.offer|data.pack|promo.code/i.test(all)
     || /no-?reply@|noreply@/.test(sender) && /offer|deal|sale|discount|promo/i.test(subj))
-    return 'promotional';
+    return {cat:'promotional', confident:true};
 
-  // Default
-  return 'work';
+  // Default — uncertain, eligible for AI batch classification
+  return {cat:'work', confident:false};
 }
 
-// ── Gmail-style priority rule ────────────────────────────────────────────────
-// An email is "priority" when:
-//  1. Gmail marked it IMPORTANT (the yellow arrow — Gmail's own priority signal), or
-//  2. it's starred, or
-//  3. it's unread AND not junk (promos/orders/spam) — covers IMAP/other accounts
-//     that don't carry Gmail's importance marker.
-function isPriority(e) {
-  if (e.importance === 'high' || e.starred) return true;
-  if (!e.unread) return false;
-  try { return !['promotional','shopping','spam'].includes(categorize(e)); } catch { return true; }
+// S.aiCategories: {emailId -> category} populated by classifyUncertainEmails().
+// AI verdicts always win over the regex default since they saw the full picture.
+function categorize(email) {
+  if (email.id && S.aiCategories && S.aiCategories[email.id]) return S.aiCategories[email.id];
+  return categorizeRegex(email).cat;
 }
+
+// Fetch AI categories for the regex-uncertain subset of a freshly loaded email
+// page. Cheap: one batched call, server-side cached per message id, so a given
+// email is only ever sent to the AI once. Fire-and-forget — re-renders the
+// list when results land so the UI never blocks on this.
+let _classifyInFlight = false;
+async function classifyUncertainEmails(emails) {
+  if (_classifyInFlight) return;
+  S.aiCategories = S.aiCategories || {};
+  const items = emails.filter(e => {
+    if (!e.id || S.aiCategories[e.id]) return false;
+    try { return !categorizeRegex(e).confident; } catch { return false; }
+  }).map(e => ({ id: e.id, sender: e.sender, subject: e.subject, snippet: e.snippet }));
+  if (!items.length) return;
+
+  _classifyInFlight = true;
+  try {
+    const data = await postJSON('/api/classify-batch', { items });
+    if (data && data.categories) {
+      Object.assign(S.aiCategories, data.categories);
+      try { renderList(); } catch {}
+    }
+  } catch (e) {
+    // Best-effort — the regex default ('work') already covers these emails.
+    console.warn('AI batch classify failed:', e.message);
+  } finally {
+    _classifyInFlight = false;
+  }
+}
+
+// ── Priority score ─────────────────────────────────────────────────────────
+// Blends server-side relationship/header signals with the client-side category
+// regex into a single 0-100 ranking, instead of a flat unread/starred boolean.
+// Higher = surfaces higher in the Priority tab.
+const PRIORITY_THRESHOLD = 30;
+function priorityScore(e) {
+  let score = 0;
+
+  // Relationship with the sender — the strongest signal a top-end mailbox uses.
+  // Ever replied to them = a real human you correspond with.
+  const stats = e.senderStats;
+  if (stats) {
+    if (stats.repliedCount > 0) score += 45;
+    else if (stats.receivedCount >= 3) score += 15;
+  }
+
+  // Explicit signals
+  if (e.importance === 'high') score += 25;
+  if (e.starred) score += 25;
+  if (e.unread) score += 10;
+
+  // Recency — a lot of what makes mail feel urgent is simply "just arrived"
+  const ageMs = Date.now() - (e._sortTs || Date.parse(e.date) || 0);
+  if (ageMs < 24 * 3600 * 1000) score += 10;
+  else if (ageMs < 3 * 24 * 3600 * 1000) score += 5;
+
+  // Demotions — bulk-mail headers (List-Unsubscribe/Precedence) are a far more
+  // reliable "this is automated/marketing" signal than snippet keyword matching.
+  if (e.isBulk) score -= 50;
+  try { if (['promotional', 'shopping', 'spam'].includes(categorize(e))) score -= 30; } catch {}
+
+  return Math.max(0, Math.min(100, score));
+}
+function isPriority(e) { return priorityScore(e) >= PRIORITY_THRESHOLD; }
 
 // Refresh category tab counts
 function updateCatCounts(emails) {
@@ -2010,6 +2072,9 @@ async function loadEmails(append=false, silent=false, _retry=0) {
     S.nextPageToken = data.nextPageToken;
     renderList();
     updateDigest();
+    // Best-effort AI categorization for the regex-uncertain subset — runs after
+    // the list is already visible, then re-renders once results land.
+    try { classifyUncertainEmails(S.emails); } catch {}
 
     // Server-warmup guard: a freshly-spawned backend can return an empty first page
     // before its mail client (Gmail/Graph/IMAP) is ready. Without a retry the UI gets
@@ -2060,6 +2125,9 @@ function renderList() {
     visible = allEmails;
   } else if (S.category === 'priority') {
     visible = allEmails.filter(e => { try { return isPriority(e); } catch { return true; } });
+    // Rank by score (relationship + signals + recency) instead of just list order,
+    // so the emails that matter most float to the top — not just the newest.
+    try { visible.sort((a, b) => priorityScore(b) - priorityScore(a)); } catch {}
     // Some mailboxes (e.g. an all-read Outlook/Zoho inbox) have no unread/important
     // mail, so Priority would be blank and look broken. Fall back to showing all mail
     // with a note instead of a confusing empty tab.
@@ -3327,6 +3395,7 @@ async function loadAllMail() {
     document.querySelectorAll('.cat-tab').forEach(b => b.classList.remove('on'));
     document.querySelector('.cat-tab[data-cat="priority"]')?.classList.add('on');
     renderList(); updateDigest();
+    try { classifyUncertainEmails(S.emails); } catch {}
   } catch(e) {
     $('email-list').innerHTML = `<div class="el-empty">⚠ ${esc(e.message)}</div>`;
   }

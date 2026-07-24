@@ -26,6 +26,20 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS app_settings (
     id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL, updated_at INTEGER
   );
+  CREATE TABLE IF NOT EXISTS sender_seen (
+    account_id  INTEGER NOT NULL,
+    sender_email TEXT   NOT NULL,
+    thread_id   TEXT    NOT NULL,
+    received_ts INTEGER,
+    PRIMARY KEY (account_id, sender_email, thread_id)
+  );
+  CREATE TABLE IF NOT EXISTS sender_replies (
+    account_id    INTEGER NOT NULL,
+    sender_email  TEXT    NOT NULL,
+    replied_count INTEGER DEFAULT 0,
+    last_replied  INTEGER,
+    PRIMARY KEY (account_id, sender_email)
+  );
   CREATE TABLE IF NOT EXISTS telemetry (
     install_uuid TEXT PRIMARY KEY,
     app_version  TEXT,
@@ -96,6 +110,26 @@ const CACHE_TTL_MS    = 7 * 24 * 60 * 60 * 1000; // 7 days
 db.prepare("DELETE FROM ai_cache WHERE created_at < ?").run(Date.now() - CACHE_TTL_MS);
 const stmtSettingsGet = db.prepare("SELECT data FROM app_settings WHERE id = 1");
 const stmtSettingsSet = db.prepare("INSERT OR REPLACE INTO app_settings (id, data, updated_at) VALUES (1, ?, ?)");
+
+// ── Sender relationship statements (for priority scoring) ─────────────────────
+const stmtSenderSeenInsert = db.prepare(`
+  INSERT OR IGNORE INTO sender_seen (account_id, sender_email, thread_id, received_ts) VALUES (?, ?, ?, ?)
+`);
+const stmtSenderSeenStats = db.prepare(`
+  SELECT COUNT(*) received_count, MAX(received_ts) last_received
+  FROM sender_seen WHERE account_id = ? AND sender_email = ?
+`);
+const stmtSenderReplyUpsert = db.prepare(`
+  INSERT INTO sender_replies (account_id, sender_email, replied_count, last_replied)
+  VALUES (?, ?, 1, ?)
+  ON CONFLICT(account_id, sender_email) DO UPDATE SET
+    replied_count = replied_count + 1, last_replied = excluded.last_replied
+`);
+const stmtSenderReplyGet = db.prepare(`
+  SELECT replied_count, last_replied FROM sender_replies WHERE account_id = ? AND sender_email = ?
+`);
+// Prune sender_seen rows older than 90 days so the table doesn't grow unbounded
+db.prepare("DELETE FROM sender_seen WHERE received_ts < ?").run(Date.now() - 90 * 24 * 60 * 60 * 1000);
 
 // ── Telemetry statements ───────────────────────────────────────────────────────
 const stmtTelemetryGet    = db.prepare("SELECT last_seen FROM telemetry WHERE install_uuid = ?");
@@ -197,6 +231,31 @@ module.exports = {
     if (targetProv && apiKey) cur.keys[targetProv]   = apiKey;
     stmtSettingsSet.run(encrypt(cur), Date.now());
     return cur;
+  },
+
+  // ── Sender relationship (for priority scoring) ────────────────────────────────
+  // Idempotent per (account, sender, thread) — safe to call on every list poll
+  // without inflating the count when the same thread is re-fetched.
+  recordSenderSeen(accountId, senderEmail, threadId, receivedTs) {
+    if (!senderEmail || !threadId) return;
+    stmtSenderSeenInsert.run(accountId, senderEmail, threadId, receivedTs || Date.now());
+  },
+  // Call once per actual send — each call is a real user action, so a plain
+  // increment (no dedup) is correct here.
+  recordSenderReply(accountId, senderEmail) {
+    if (!senderEmail) return;
+    stmtSenderReplyUpsert.run(accountId, senderEmail, Date.now());
+  },
+  getSenderStats(accountId, senderEmail) {
+    if (!senderEmail) return { receivedCount: 0, repliedCount: 0, lastReceived: null, lastReplied: null };
+    const seen   = stmtSenderSeenStats.get(accountId, senderEmail) || {};
+    const replied = stmtSenderReplyGet.get(accountId, senderEmail) || {};
+    return {
+      receivedCount: seen.received_count || 0,
+      repliedCount:  replied.replied_count || 0,
+      lastReceived:  seen.last_received || null,
+      lastReplied:   replied.last_replied || null,
+    };
   },
 
   // ── Telemetry ──────────────────────────────────────────────────────────────────
