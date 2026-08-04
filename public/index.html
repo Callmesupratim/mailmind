@@ -3141,7 +3141,9 @@ $('rb-send').onclick = async () => {
     })));
   }
   const btn = $('rb-send');
+  const origBtnHtml = btn.innerHTML;
   btn.disabled = true;
+  btn.innerHTML = 'Sending…';
   try {
     const rawSubj = S.activeEmail.subject || '';
     const subject = /^re:\s*/i.test(rawSubj) ? rawSubj : 'Re: ' + rawSubj;
@@ -3160,7 +3162,7 @@ $('rb-send').onclick = async () => {
     closeReplyBar();
     showToast('Message sent.');
   } catch(e) { showToast('Send failed: ' + e.message, false); }
-  finally { btn.disabled = false; }
+  finally { btn.disabled = false; btn.innerHTML = origBtnHtml; }
 };
 
 // ── Toolbar ────────────────────────────────────────────────────────────────────

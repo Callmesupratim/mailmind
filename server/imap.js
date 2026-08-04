@@ -6,17 +6,24 @@ const nodemailer = require("nodemailer");
 
 const PAGE_SIZE = 25;
 
+// Nodemailer's own defaults are 2min connect / 10min idle socket — on a flaky
+// DNS/network path (e.g. a mail host that intermittently fails to resolve)
+// that leaves the Send button hung with no feedback for minutes. Match the
+// IMAP client's sane timeouts instead, so a bad connection fails fast and
+// visibly rather than looking like the app froze.
+const SMTP_TIMEOUTS = { connectionTimeout: 15000, greetingTimeout: 10000, socketTimeout: 30000 };
+
 function makeSmtpTransport(creds) {
   const port   = creds.smtpPort || 465;
   const secure = port === 465;
   if (creds.accessToken) {
     return nodemailer.createTransport({
-      host: creds.smtpHost, port, secure,
+      host: creds.smtpHost, port, secure, ...SMTP_TIMEOUTS,
       auth: { type: 'OAuth2', user: creds.user, accessToken: creds.accessToken },
     });
   }
   return nodemailer.createTransport({
-    host: creds.smtpHost, port, secure,
+    host: creds.smtpHost, port, secure, ...SMTP_TIMEOUTS,
     auth: { user: creds.user, pass: creds.pass },
   });
 }
