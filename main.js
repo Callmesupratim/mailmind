@@ -501,6 +501,7 @@ app.whenReady().then(async () => {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      plugins: true,          // enables Chromium's built-in PDF viewer for attachment preview
       preload: path.join(appDir, 'preload.js'),
     },
   });

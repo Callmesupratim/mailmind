@@ -236,6 +236,7 @@ module.exports = {
 
         return {
           threadId: String(uid),
+          _type: 'imap',
           _imapFolder: folder,
           messages: [{
             id: String(uid),
@@ -254,23 +255,35 @@ module.exports = {
     });
   },
 
-  // ── Download one attachment (re-fetches message on demand) ─────────────────
-  async getAttachment(creds, uid, attIndex, folder = "INBOX") {
+  // ── Fetch every attachment on a message in one pass — one connection, one
+  // fetchOne, one simpleParser, regardless of how many attachments exist.
+  // getAttachment() below is a thin wrapper over this; the ZIP endpoint uses
+  // this directly so an N-attachment download doesn't re-fetch the whole
+  // message N times.
+  async getAllAttachments(creds, uid, folder = "INBOX") {
     return withClient(creds, async (client) => {
       const lock = await client.getMailboxLock(folder);
       try {
         const msg = await client.fetchOne(uid, { source: true }, { uid: true });
         if (!msg) throw new Error("message not found");
         const p = await simpleParser(msg.source);
-        const att = (p.attachments || [])[parseInt(attIndex)];
-        if (!att) throw new Error("attachment not found");
-        return {
-          filename: att.filename || "attachment",
-          contentType: att.contentType || "application/octet-stream",
-          content: att.content,
-        };
+        return (p.attachments || []).map((a, i) => ({
+          index: i,
+          filename: a.filename || `attachment-${i + 1}`,
+          contentType: a.contentType || "application/octet-stream",
+          size: a.size || (a.content ? a.content.length : 0),
+          content: a.content,
+        }));
       } finally { lock.release(); }
     });
+  },
+
+  // ── Download one attachment (re-fetches message on demand) ─────────────────
+  async getAttachment(creds, uid, attIndex, folder = "INBOX") {
+    const atts = await this.getAllAttachments(creds, uid, folder);
+    const att = atts[parseInt(attIndex)];
+    if (!att) throw new Error("attachment not found");
+    return { filename: att.filename, contentType: att.contentType, content: att.content };
   },
 
   // ── Flags — accept folder so non-INBOX messages work ──────────────────────

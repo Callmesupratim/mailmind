@@ -208,6 +208,45 @@ module.exports = {
     return { threadId: conversationId, _type: 'microsoft', messages: msgs.map(mapMsg) };
   },
 
+  // ── Fetch one attachment's bytes ──────────────────────────────────────────────
+  async getAttachment(token, msgId, attId) {
+    const data = await gGet(token, `/me/messages/${msgId}/attachments/${attId}`);
+    if (data.error) throw new Error(data.error.message || "attachment fetch failed");
+    return {
+      filename: data.name || "attachment",
+      contentType: data.contentType || "application/octet-stream",
+      content: Buffer.from(data.contentBytes || "", "base64"),
+    };
+  },
+
+  // ── Fetch every attachment across a whole conversation in one query ──────────
+  // Reuses the $expand=attachments shape from getThread — fileAttachment resources
+  // normally come back with contentBytes inline, so this avoids one round-trip per
+  // attachment; the per-attachment getAttachment() call is only a fallback.
+  async getThreadAttachments(token, conversationId) {
+    const filter = encodeURIComponent(`conversationId eq '${odataStr(conversationId)}'`);
+    const sel  = "id,subject";
+    const path = `/me/messages?$filter=${filter}&$select=${sel}&$top=50&$expand=attachments`;
+    const data = await gGet(token, path);
+    const out = [];
+    for (const m of (data.value || [])) {
+      for (const a of (m.attachments || [])) {
+        if (a['@odata.type'] !== '#microsoft.graph.fileAttachment') continue;
+        const filename = a.name || 'attachment';
+        const contentType = a.contentType || 'application/octet-stream';
+        if (a.contentBytes) {
+          out.push({ filename, contentType, size: a.size || 0, content: Buffer.from(a.contentBytes, 'base64') });
+        } else {
+          try {
+            const full = await this.getAttachment(token, m.id, a.id);
+            out.push({ filename, contentType, size: a.size || 0, content: full.content });
+          } catch (e) { console.error("MS thread attachment fetch error:", e.message); }
+        }
+      }
+    }
+    return out;
+  },
+
   // ── Flags ────────────────────────────────────────────────────────────────────
   async setRead(token, conversationId, read = true) {
     const filter = encodeURIComponent(`conversationId eq '${odataStr(conversationId)}'`);
@@ -274,6 +313,12 @@ module.exports = {
 
     // If replying, find the original message by its Internet Message-ID and use
     // Graph's /reply endpoint — this keeps the conversation thread intact.
+    // KNOWN LIMITATION: Graph's /reply MERGES msgShape's recipients with the
+    // original message's recipients rather than replacing them — so a reply
+    // that narrows the To list or drops a CC recipient will not be honoured
+    // for Outlook accounts the way it is for Gmail/IMAP. No workaround short
+    // of switching this to sendMail (which would break threading) — flagging
+    // only.
     if (inReplyTo) {
       try {
         const filter = encodeURIComponent(`internetMessageId eq '${odataStr(inReplyTo)}'`);

@@ -262,7 +262,10 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .rb-resizer::after{content:'';display:block;width:36px;height:3px;border-radius:99px;background:var(--bc);transition:background 150ms}
 .rb-resizer:hover::after,.rb-resizer.dragging::after{background:var(--accent)}
 .rb-box{border:1px solid var(--bc);border-radius:10px;overflow:hidden;background:var(--p2);contain:layout style}
-.rb-to{padding:7px 12px;border-bottom:1px solid var(--bc);font-family:var(--font-mono);font-size:10.5px;color:var(--t3);background:var(--p1)}
+.rb-fields{background:var(--p1);border-bottom:1px solid var(--bc)}
+.rb-field{padding:5px 12px;border-bottom:1px solid var(--bc)}
+.rb-fields .rb-field:last-child{border-bottom:none}
+.rb-field .cm-lbl{width:30px}
 .rb-tones{display:flex;gap:3px;padding:8px 10px 0;background:var(--p2);align-items:center}
 .rb-tone{height:22px;padding:0 10px;border-radius:99px;border:none;cursor:pointer;font-family:inherit;font-size:11px;font-weight:500;transition:background 100ms,color 100ms;background:var(--p3);color:var(--t3)}
 .rb-tone.on{background:var(--accent);color:oklch(8% 0.003 100)}
@@ -314,6 +317,25 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .cm-att-chip .sz{color:var(--t3);font-size:10.5px;flex-shrink:0;white-space:nowrap}
 .cm-att-chip .rm{width:16px;height:16px;border-radius:3px;background:none;border:none;cursor:pointer;color:var(--t3);font-size:13px;display:flex;align-items:center;justify-content:center;padding:0;flex-shrink:0;line-height:1}
 .cm-att-chip .rm:hover{color:var(--t1)}
+
+/* ── Attachment strip (reader) + preview lightbox ── */
+.att-strip{padding:12px 28px 0;display:flex;flex-wrap:wrap;gap:8px}
+.att-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;border:1px solid var(--bc);background:var(--p2);color:var(--t2);text-decoration:none;font-size:11.5px;font-family:inherit;cursor:pointer;transition:background 100ms}
+.att-chip:hover{background:var(--p3)}
+.att-chip .sz{color:var(--t3);font-size:10px}
+.att-chip .dl{color:var(--t3);padding:2px 4px;border-radius:3px;text-decoration:none;display:inline-flex;align-items:center}
+.att-chip .dl:hover{color:var(--t1);background:var(--bc)}
+.att-dlall{color:var(--accent);border-color:var(--abrd);background:var(--adim)}
+.apv-overlay{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:600;display:flex;flex-direction:column;backdrop-filter:blur(3px)}
+.apv-bar{display:flex;align-items:center;gap:10px;padding:10px 14px;color:var(--t1);flex-shrink:0}
+.apv-name{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%}
+.apv-size{font-size:11px;color:var(--t3)}
+.apv-stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:0 24px 24px;overflow:auto}
+.apv-stage img{max-width:100%;max-height:100%;object-fit:contain;cursor:zoom-in;background:#fff;border-radius:6px}
+.apv-stage img.zoomed{max-width:none;max-height:none;cursor:zoom-out}
+.apv-stage iframe{width:100%;height:100%;border:none;border-radius:8px;background:#fff}
+.apv-stage pre{width:100%;height:100%;overflow:auto;margin:0;padding:16px;background:var(--p1);border:1px solid var(--bc);border-radius:8px;color:var(--t1);font-family:var(--font-mono);font-size:12px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
+.apv-msg{color:var(--t2);font-size:13px;text-align:center}
 /* Compose AI instruction row */
 .cm-ai-instr{display:flex;align-items:center;gap:8px;padding:6px 14px;border-bottom:1px solid var(--p1);background:var(--adim)}
 .cm-ai-instr-lbl{font-size:10px;font-weight:700;color:var(--accent);letter-spacing:.06em;white-space:nowrap;flex-shrink:0}
@@ -828,9 +850,21 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
         <div class="rb" id="rb" style="display:none">
           <div class="rb-resizer" id="rb-resizer"></div>
           <div class="rb-box">
-            <div class="rb-to" style="display:flex;align-items:center;justify-content:space-between">
-              <span id="rb-to">To: —</span>
-              <button onclick="closeReplyBar()" title="Discard reply" style="background:none;border:none;color:var(--t3);cursor:pointer;font-size:16px;padding:0 6px;line-height:1;transition:color 100ms" onmouseover="this.style.color='var(--hi)'" onmouseout="this.style.color='var(--t3)'">✕</button>
+            <div class="rb-fields">
+              <div class="cm-field rb-field">
+                <span class="cm-lbl">To</span>
+                <input class="cm-input" id="rb-to" placeholder="recipient@example.com" autocomplete="off">
+                <button class="cm-ccbcc-btn" id="rb-ccbcc-toggle" type="button" title="Add CC / BCC">CC / BCC</button>
+                <button onclick="closeReplyBar()" title="Discard reply" style="background:none;border:none;color:var(--t3);cursor:pointer;font-size:16px;padding:0 6px;line-height:1;transition:color 100ms;flex-shrink:0" onmouseover="this.style.color='var(--hi)'" onmouseout="this.style.color='var(--t3)'">✕</button>
+              </div>
+              <div class="cm-field rb-field hidden" id="rb-cc-row">
+                <span class="cm-lbl">CC</span>
+                <input class="cm-input" id="rb-cc" placeholder="cc@example.com" autocomplete="off">
+              </div>
+              <div class="cm-field rb-field hidden" id="rb-bcc-row">
+                <span class="cm-lbl">BCC</span>
+                <input class="cm-input" id="rb-bcc" placeholder="bcc@example.com" autocomplete="off">
+              </div>
             </div>
             <div class="rb-tones">
               <button class="rb-tone on" data-tone="professional">Professional</button>
@@ -975,6 +1009,23 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
       </button>
     </div>
   </div>
+</div>
+
+<!-- ══ ATTACHMENT PREVIEW LIGHTBOX ══ -->
+<div class="apv-overlay hidden" id="att-preview">
+  <div class="apv-bar">
+    <span class="apv-name" id="apv-name"></span>
+    <span class="apv-size" id="apv-size"></span>
+    <div style="flex:1"></div>
+    <a class="att-chip" id="apv-download" download title="Download">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1v10M4 7l4 4 4-4M2 14h12"/></svg>
+      Download
+    </a>
+    <button class="modal-close" id="apv-close" title="Close">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 2l12 12M14 2L2 14"/></svg>
+    </button>
+  </div>
+  <div class="apv-stage" id="apv-stage"></div>
 </div>
 
 <!-- ══ ADD MAILBOX MODAL — Smart Connect ══ -->
@@ -1640,7 +1691,6 @@ let S = {
   tone: 'professional',
   theme: 'dark',
   replyMode: 'reply',    // 'reply' | 'replyall'
-  replyAllCC: '',        // CC string for Reply All
 };
 
 // ── Theme ──────────────────────────────────────────────────────────────────────
@@ -1659,6 +1709,12 @@ $('theme-toggle').onclick = () => {
   let saved = 'light';
   try { saved = localStorage.getItem('mm-theme') || 'light'; } catch {}
   applyTheme(saved);
+})();
+// "Default reply mode" setting — was written to localStorage by Settings but
+// never read back anywhere, so it did nothing. Restore it into S.replyMode so
+// bare openReplyBar() calls (the 'r' shortcut, toolbar Reply button) honour it.
+(function() {
+  try { S.replyMode = localStorage.getItem('mm-replymode') || 'reply'; } catch {}
 })();
 
 // ── Per-mailbox accent themes ───────────────────────────────────────────────────
@@ -2347,34 +2403,38 @@ function renderDetail(thread) {
   const allAtts = msgs.flatMap((m, mi) =>
     (m.attachments || []).map(a => ({ ...a, msgId: m.id, msgIdx: mi }))
   );
+  // Stash for the preview lightbox (stable index) and for downloadAllAtts().
+  S._detailAtts = allAtts;
+  S._detailThreadType = thread._type || (thread._imapFolder ? 'imap' : 'gmail');
+  S._detailFolder = thread._imapFolder || 'INBOX';
+  S._detailThreadId = thread.threadId;
+
   let attHtml = '';
   if (allAtts.length) {
-    const threadType = thread._type || (thread._imapFolder ? 'imap' : 'gmail');
-    const folder = thread._imapFolder || 'INBOX';
-    attHtml = '<div style="padding:12px 28px 0;display:flex;flex-wrap:wrap;gap:8px">'
-      + allAtts.map(a => {
-          let href;
-          if (threadType === 'imap') {
-            href = `/api/attachments/imap/${encodeURIComponent(a.msgId)}/${a.index}?folder=${encodeURIComponent(folder)}`;
-          } else if (threadType === 'microsoft') {
-            href = `/api/attachments/microsoft/${encodeURIComponent(a.msgId)}/${encodeURIComponent(a.attachmentId)}?filename=${encodeURIComponent(a.filename)}`;
-          } else {
-            // Gmail
-            href = a.dataUrl
-              ? a.dataUrl
-              : a.attachmentId
-                ? `/api/attachments/gmail/${encodeURIComponent(a.msgId)}/${encodeURIComponent(a.attachmentId)}?filename=${encodeURIComponent(a.filename)}&contentType=${encodeURIComponent(a.contentType)}`
-                : '#';
-          }
-          const icon = (a.contentType||'').startsWith('image') ? '🖼️'
-            : a.contentType === 'application/pdf' ? '📄'
-            : (a.contentType||'').includes('zip') || (a.contentType||'').includes('compressed') ? '🗜️'
-            : (a.contentType||'').includes('word') || (a.filename||'').match(/\.docx?$/i) ? '📝'
-            : (a.contentType||'').includes('sheet') || (a.filename||'').match(/\.xlsx?$/i) ? '📊'
-            : '📎';
-          return `<a href="${href}" download="${esc(a.filename)}" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;border:1px solid var(--bc);background:var(--p2);color:var(--t2);text-decoration:none;font-size:11.5px;transition:background 100ms" onmouseover="this.style.background='var(--p3)'" onmouseout="this.style.background='var(--p2)'">${icon} <span>${esc(a.filename)}</span>${a.sizeStr ? `<span style="color:var(--t3);font-size:10px">${esc(a.sizeStr)}</span>` : ''}</a>`;
-        }).join('')
-      + '</div>';
+    const chips = allAtts.map((a, i) => {
+      const icon = (a.contentType||'').startsWith('image') ? '🖼️'
+        : a.contentType === 'application/pdf' ? '📄'
+        : (a.contentType||'').includes('zip') || (a.contentType||'').includes('compressed') ? '🗜️'
+        : (a.contentType||'').includes('word') || (a.filename||'').match(/\.docx?$/i) ? '📝'
+        : (a.contentType||'').includes('sheet') || (a.filename||'').match(/\.xlsx?$/i) ? '📊'
+        : '📎';
+      const sizeSpan = a.sizeStr ? `<span class="sz">${esc(a.sizeStr)}</span>` : '';
+      const dlHref = attUrl(a, { inline: false });
+      const dlLink = `<a class="dl" href="${dlHref}" download="${esc(a.filename)}" title="Download">
+        <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1v9M4 6l4 4 4-4M2 14h12"/></svg>
+      </a>`;
+      if (attKind(a)) {
+        // Previewable — the chip opens the lightbox; download stays a separate
+        // action so gaining preview never costs the ability to save.
+        return `<span class="att-chip" onclick="openAttPreview(${i})">${icon} <span>${esc(a.filename)}</span>${sizeSpan}${dlLink}</span>`;
+      }
+      // Not previewable (Office docs, zips, svg, html) — plain download chip.
+      return `<a class="att-chip" href="${dlHref}" download="${esc(a.filename)}">${icon} <span>${esc(a.filename)}</span>${sizeSpan}</a>`;
+    }).join('');
+    const dlAllChip = allAtts.length >= 2
+      ? `<button class="att-chip att-dlall" onclick="downloadAllAtts()" id="att-dlall-btn">⤓ Download all (${allAtts.length})</button>`
+      : '';
+    attHtml = `<div class="att-strip">${dlAllChip}${chips}</div>`;
   }
   $('det-body').innerHTML = bodyHtml + attHtml;
 
@@ -2390,28 +2450,238 @@ function renderDetail(thread) {
     el.replaceWith(fr);
   });
 
-  const last = msgs[msgs.length-1] || msgs[0];
-  // Store full CC list for Reply All
-  S.replyAllCC = [last?.from, ...(last?.cc ? last.cc.split(',') : [])].filter(Boolean).join(', ');
-  $('rb-to').textContent = 'To: ' + (last?.from || email?.sender || '—');
+  // Pre-fill To/CC/BCC for whatever reply mode is currently active (a fresh
+  // thread open always resets to a clean, non-dirty state).
+  _rbRecipDirty = false;
+  fillReplyRecipients(S.replyMode || 'reply');
   // Show signature in the preview strip (not in textarea — keeps editing area clean)
   try { applySignaturePreview(); } catch {}
   $('rb-textarea').value = '';
   _rbFiles = []; try { renderRbAtts(); } catch {}
 }
 
+// ── Attachment URL + preview kind ───────────────────────────────────────────────
+// Single source of truth for every attachment URL in the app. Always carries
+// accountId — the thread was fetched WITH accountId (see selectEmail), but the
+// old inline hrefs never propagated it, so in All-Mail an attachment from a
+// non-active account would 400 or silently hit the wrong mailbox. Centralizing
+// URL construction here means that bug class can't come back piecemeal.
+function attUrl(a, opts) {
+  opts = opts || {};
+  const threadType = S._detailThreadType;
+  const folder = S._detailFolder || 'INBOX';
+  const acctId = S.activeEmail?._accountId;
+  const disp = opts.inline ? 'inline' : 'attachment';
+  let base;
+  if (threadType === 'imap') {
+    base = `/api/attachments/imap/${encodeURIComponent(a.msgId)}/${a.index}?folder=${encodeURIComponent(folder)}&disposition=${disp}`;
+  } else if (threadType === 'microsoft') {
+    base = `/api/attachments/microsoft/${encodeURIComponent(a.msgId)}/${encodeURIComponent(a.attachmentId)}?filename=${encodeURIComponent(a.filename)}&disposition=${disp}`;
+  } else {
+    // Gmail
+    if (a.dataUrl && !opts.inline) {
+      // dataUrl already IS the content — no server round-trip, no accountId needed.
+      base = null;
+    } else if (a.attachmentId) {
+      base = `/api/attachments/gmail/${encodeURIComponent(a.msgId)}/${encodeURIComponent(a.attachmentId)}?filename=${encodeURIComponent(a.filename)}&contentType=${encodeURIComponent(a.contentType)}&disposition=${disp}`;
+    } else if (a.dataUrl) {
+      base = null; // inline preview uses the dataUrl directly too — fetch() handles data: URLs fine
+    } else {
+      base = '#';
+    }
+  }
+  if (base === null) return a.dataUrl;
+  if (base !== '#' && acctId) base += `&accountId=${encodeURIComponent(acctId)}`;
+  return base;
+}
+
+// Which preview widget (if any) an attachment supports. null => download-only
+// (Office docs, zip/svg/html — svg and html are excluded because they can
+// execute script if rendered same-origin).
+function attKind(a) {
+  const ct = (a.contentType || '').split(';')[0].trim().toLowerCase();
+  const fn = (a.filename || '').toLowerCase();
+  if (ct === 'image/svg+xml' || fn.endsWith('.svg')) return null;
+  if (ct === 'text/html' || fn.endsWith('.html') || fn.endsWith('.htm')) return null;
+  if (ct.startsWith('image/')) return 'image';
+  if (ct === 'application/pdf' || fn.endsWith('.pdf')) return 'pdf';
+  if (ct.startsWith('text/')) return 'text';
+  if (/\.(txt|log|md|csv|tsv|json|xml|ya?ml|ini|conf|diff|patch|sql|css|js|ts|py|java|c|h|cpp|cs|go|rs|rb|php|sh)$/i.test(fn)) return 'text';
+  return null;
+}
+
+let _apvObjectUrl = null;
+async function openAttPreview(i) {
+  const a = (S._detailAtts || [])[i];
+  if (!a) return;
+  const kind = attKind(a);
+  if (!kind) return;
+
+  $('att-preview').classList.remove('hidden');
+  $('apv-name').textContent = a.filename || 'attachment';
+  $('apv-size').textContent = a.sizeStr || '';
+  $('apv-download').href = attUrl(a, { inline: false });
+  $('apv-download').setAttribute('download', a.filename || 'attachment');
+  const stage = $('apv-stage');
+  stage.innerHTML = '<div class="apv-msg">Loading…</div>';
+
+  if (_apvObjectUrl) { URL.revokeObjectURL(_apvObjectUrl); _apvObjectUrl = null; }
+
+  try {
+    const url = attUrl(a, { inline: true });
+    const res = await fetch(url);
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j.error || `Preview failed (${res.status})`);
+    }
+    const blob = await res.blob();
+
+    if (kind === 'image') {
+      _apvObjectUrl = URL.createObjectURL(blob);
+      const img = document.createElement('img');
+      img.src = _apvObjectUrl;
+      img.onclick = () => img.classList.toggle('zoomed');
+      stage.innerHTML = '';
+      stage.appendChild(img);
+    } else if (kind === 'pdf') {
+      _apvObjectUrl = URL.createObjectURL(blob);
+      const fr = document.createElement('iframe');
+      fr.src = _apvObjectUrl;
+      stage.innerHTML = '';
+      stage.appendChild(fr);
+      // Some environments (missing Chromium PDF plugin) render a blank frame
+      // with no error — detect that and offer a clear fallback instead of a
+      // silent blank rectangle.
+      setTimeout(() => {
+        try {
+          const doc = fr.contentDocument;
+          if (doc && (!doc.body || !doc.body.children.length)) {
+            stage.innerHTML = '<div class="apv-msg">Preview unavailable in this build — use Download to open it.</div>';
+          }
+        } catch {} // cross-origin-esque access errors just mean it loaded something; leave it
+      }, 1500);
+    } else if (kind === 'text') {
+      let text = await blob.text();
+      let truncated = false;
+      if (text.length > 500000) { text = text.slice(0, 500000); truncated = true; }
+      const pre = document.createElement('pre');
+      pre.textContent = text + (truncated ? '\n\n… truncated (file is larger than 500,000 characters) …' : '');
+      stage.innerHTML = '';
+      stage.appendChild(pre);
+    }
+  } catch (e) {
+    stage.innerHTML = `<div class="apv-msg">⚠ ${esc(e.message || 'Could not load preview')}</div>`;
+  }
+}
+
+function closeAttPreview() {
+  $('att-preview').classList.add('hidden');
+  $('apv-stage').innerHTML = '';
+  if (_apvObjectUrl) { URL.revokeObjectURL(_apvObjectUrl); _apvObjectUrl = null; }
+}
+$('apv-close').onclick = closeAttPreview;
+$('att-preview').onclick = (e) => { if (e.target === e.currentTarget) closeAttPreview(); };
+
+let _dlAllInFlight = false;
+async function downloadAllAtts() {
+  if (_dlAllInFlight) return;
+  const threadId = S._detailThreadId;
+  if (!threadId) return;
+  const btn = $('att-dlall-btn');
+  const origText = btn ? btn.innerHTML : '';
+  _dlAllInFlight = true;
+  if (btn) { btn.innerHTML = '⤓ Zipping…'; btn.disabled = true; }
+  try {
+    const qp = new URLSearchParams();
+    if (S._detailFolder) qp.set('folder', S._detailFolder);
+    const acctId = S.activeEmail?._accountId;
+    if (acctId) qp.set('accountId', acctId);
+    const subj = (S.activeEmail?.subject || 'attachments').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60);
+    qp.set('name', subj);
+    const res = await fetch(`/api/attachments/zip/${encodeURIComponent(threadId)}?${qp}`);
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j.error || `Download failed (${res.status})`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = subj + '.zip';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } catch (e) {
+    showToast(e.message || 'Could not download attachments', false);
+  } finally {
+    _dlAllInFlight = false;
+    if (btn) { btn.innerHTML = origText; btn.disabled = false; }
+  }
+}
+
+// ── Reply recipients (To / CC / BCC) ────────────────────────────────────────────
+function splitAddrs(s) { return String(s || '').split(',').map(x => x.trim()).filter(Boolean); }
+// Pull the bare address out of "Name <addr@host>" (or return the string as-is
+// if there's no angle-bracket form) so dedup/self-filtering compares addresses,
+// not display names.
+function addrKey(s) { return (String(s || '').match(/<([^>]+)>/)?.[1] || String(s || '')).trim().toLowerCase(); }
+
+// True once the user has hand-edited To/CC/BCC — set on input, cleared by
+// renderDetail (fresh thread) and closeReplyBar. Prevents fillReplyRecipients
+// from clobbering an in-progress edit except when explicitly forced (switching
+// Reply <-> Reply All).
+let _rbRecipDirty = false;
+let _rbCcbccOpen = false;
+
+// Single source of truth for populating To/CC/BCC — replaces the old
+// S.replyAllCC, which (a) duplicated the To recipient into CC because it was
+// seeded as [last.from, ...last.cc], (b) dropped the original To: recipients
+// entirely because it never read last.to, and (c) whose consumer filtered the
+// sender's own address with a substring match (`!e.includes(selfEmail)`),
+// which silently drops any address that merely CONTAINS your own as a
+// substring (e.g. you're a@x.com, and notme.a@x.com gets filtered out too).
+function fillReplyRecipients(mode, force) {
+  if (_rbRecipDirty && !force) return;
+  const last = S.activeThread?.messages?.slice(-1)[0];
+  const to = last?.from || S.activeEmail?.sender || '';
+  const selfKeys = new Set((S.accounts || []).map(a => (a.email || '').toLowerCase()).filter(Boolean));
+  const seen = new Set([addrKey(to), ...selfKeys]);
+  const cc = mode === 'replyall'
+    ? [...splitAddrs(last?.to), ...splitAddrs(last?.cc)].filter(addr => {
+        const k = addrKey(addr);
+        if (!k || seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      })
+    : [];
+  $('rb-to').value = to;
+  $('rb-cc').value = cc.join(', ');
+  $('rb-bcc').value = '';
+  _rbCcbccOpen = cc.length > 0;
+  $('rb-cc-row').classList.toggle('hidden', !_rbCcbccOpen);
+  $('rb-bcc-row').classList.toggle('hidden', !_rbCcbccOpen);
+  $('rb-ccbcc-toggle').classList.toggle('on', _rbCcbccOpen);
+  _rbRecipDirty = false;
+}
+
+['rb-to', 'rb-cc', 'rb-bcc'].forEach(id => {
+  $(id).addEventListener('input', () => { _rbRecipDirty = true; });
+});
+$('rb-ccbcc-toggle').onclick = () => {
+  _rbCcbccOpen = !_rbCcbccOpen;
+  $('rb-cc-row').classList.toggle('hidden', !_rbCcbccOpen);
+  $('rb-bcc-row').classList.toggle('hidden', !_rbCcbccOpen);
+  $('rb-ccbcc-toggle').classList.toggle('on', _rbCcbccOpen);
+  if (_rbCcbccOpen) $('rb-cc').focus();
+};
+
 // ── Reply bar open/close ────────────────────────────────────────────────────────
 function openReplyBar(mode) {
   if (!S.activeEmail) return;
   const rb = $('rb');
   rb.style.display = '';
-  S.replyMode = mode || 'reply';
-  const last = S.activeThread?.messages?.slice(-1)[0];
-  if (S.replyMode === 'replyall') {
-    $('rb-to').textContent = 'To (all): ' + (S.replyAllCC || S.activeEmail.sender || '—');
-  } else {
-    $('rb-to').textContent = 'To: ' + (last?.from || S.activeEmail.sender || '—');
-  }
+  const newMode = mode || S.replyMode || 'reply';
+  const force = !!mode && mode !== S.replyMode;
+  S.replyMode = newMode;
+  fillReplyRecipients(newMode, force);
   try {
     const savedH = parseInt(localStorage.getItem('mm-rb-height'));
     if (savedH > 0) $('rb-textarea').style.height = savedH + 'px';
@@ -2421,6 +2691,11 @@ function openReplyBar(mode) {
 function closeReplyBar() {
   $('rb').style.display = 'none';
   $('rb-textarea').value = '';
+  $('rb-to').value = ''; $('rb-cc').value = ''; $('rb-bcc').value = '';
+  _rbCcbccOpen = false; _rbRecipDirty = false;
+  $('rb-cc-row').classList.add('hidden');
+  $('rb-bcc-row').classList.add('hidden');
+  $('rb-ccbcc-toggle').classList.remove('on');
   _rbFiles = []; try { renderRbAtts(); } catch {}
 }
 
@@ -2842,12 +3117,10 @@ $('rb-send').onclick = async () => {
   if (!S.activeEmail) return;
   try { if (localStorage.getItem('mm-sendconfirm') === '1' && !confirm('Send this email?')) return; } catch {};
   const last = S.activeThread?.messages?.slice(-1)[0];
-  const isReplyAll = S.replyMode === 'replyall';
-  const selfEmail = S.accounts?.find(a => a.active)?.email || '';
-  const to = last?.from || S.activeEmail.sender;
-  const ccAll = isReplyAll
-    ? (S.replyAllCC || '').split(',').map(s => s.trim()).filter(e => e && e !== selfEmail && !e.includes(selfEmail)).join(', ')
-    : '';
+  const to  = $('rb-to').value.trim();
+  const cc  = $('rb-cc').value.trim()  || undefined;
+  const bcc = $('rb-bcc').value.trim() || undefined;
+  if (!to) return showToast('Add a recipient', false);
   // Build HTML if formatting tags present or signature set
   const sigHtml = _rbActiveSigHtml || '';
   const hasHtml = /<[a-z]/i.test(rawBody);
@@ -2870,13 +3143,17 @@ $('rb-send').onclick = async () => {
   const btn = $('rb-send');
   btn.disabled = true;
   try {
+    const rawSubj = S.activeEmail.subject || '';
+    const subject = /^re:\s*/i.test(rawSubj) ? rawSubj : 'Re: ' + rawSubj;
+    const references = (S.activeThread?.messages || []).map(m => m.headerMessageId).filter(Boolean).join(' ');
     const res = await postJSON('/api/send', {
-      to,
-      cc: ccAll || undefined,
-      subject: 'Re: ' + (S.activeEmail.subject || ''),
+      to, cc, bcc,
+      subject,
       ...(html ? { html } : { body: plainBody }),
       inReplyTo: last?.headerMessageId,
+      ...(references ? { references } : {}),
       threadId: S.activeThread?.threadId,
+      ...(S.activeEmail._accountId ? { accountId: S.activeEmail._accountId } : {}),
       ...(attachments.length ? { attachments } : {}),
     }, 30000);
     if (res.error) throw new Error(res.error);
@@ -3225,6 +3502,9 @@ document.addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;   // never hijack Ctrl+C / Ctrl+V etc.
   if (e.key === 'c' || e.key === 'C') { e.preventDefault(); openCompose(); }
   if (e.key === 'Escape') {
+    // Must be checked first: previewing an attachment mid-reply must not also
+    // discard the in-progress reply draft via closeReplyBar() below.
+    if (!$('att-preview').classList.contains('hidden')) { closeAttPreview(); return; }
     $('compose-modal').classList.add('hidden');
     $('add-modal').classList.add('hidden');
     $('shortcut-modal').classList.add('hidden');
@@ -3240,7 +3520,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'e' && S.activeEmail) action('archive');
   if (e.key === '#' && S.activeEmail) action('trash');
   if (e.key === 's' && S.activeEmail) toggleStar();
-  if (e.key === 'r' && S.activeEmail) openReplyBar('reply');
+  if (e.key === 'r' && S.activeEmail) openReplyBar();
 });
 
 

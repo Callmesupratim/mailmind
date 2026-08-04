@@ -6,6 +6,7 @@ const path = require("path");
 const https = require("https");
 const crypto = require("crypto");
 const iconv = require("iconv-lite");
+const archiver = require("archiver");
 const store = require("./db");
 const imap = require("./imap");
 const graph = require("./msgraph");
@@ -1355,6 +1356,90 @@ app.get("/api/emails", withAuth, async (req, res) => {
   }
 });
 
+// Fetch + parse a full Gmail thread — messages, bodies, and attachment metadata.
+// Extracted from the /api/emails/:threadId route so the ZIP endpoint can reuse
+// the exact same MIME walk instead of re-deriving attachment locations.
+// keepInlineData: when true, small inline attachments (no attachmentId — Gmail
+// hands back their bytes directly) also get entry._rawB64 stashed so the ZIP
+// path can use them without a second round-trip to the Gmail API.
+async function gmailGetThread(gmail, threadId, { keepInlineData = false } = {}) {
+  const thread = await gmail.users.threads.get({ userId: "me", id: threadId, format: "full" });
+  const messages = (thread.data.messages || []).map((msg) => {
+    const headers = msg.payload?.headers || [];
+    const get = (name) => headers.find(h => h.name.toLowerCase() === name.toLowerCase())?.value || "";
+
+    // Decode a MIME part using the charset declared in its Content-Type header
+    // (emails are often windows-1252 / ISO-8859-1, not UTF-8 — decoding as UTF-8 corrupts them to "?").
+    function decodePart(part) {
+      const buf = Buffer.from(part.body.data, "base64");
+      const ctype = (part.headers || []).find(h => h.name.toLowerCase() === "content-type")?.value || "";
+      const charset = (ctype.match(/charset=["']?([^;"'\s]+)/i)?.[1] || "utf-8").toLowerCase();
+      return iconv.encodingExists(charset) ? iconv.decode(buf, charset) : buf.toString("utf-8");
+    }
+
+    let plain = "", html = "";
+    const attachments = [];
+    // A part is an attachment if it carries a filename or an explicit
+    // Content-Disposition: attachment — the same signal Gmail's own web UI uses.
+    // This must be checked BEFORE the mimeType-based body checks below, otherwise
+    // a text/plain or text/html *file* attachment gets silently merged into the
+    // message body instead of showing up as a downloadable attachment.
+    function isAttachmentPart(part) {
+      if (part.filename && part.filename.trim()) return true;
+      const cd = (part.headers || []).find(h => h.name.toLowerCase() === "content-disposition")?.value || "";
+      return /attachment/i.test(cd);
+    }
+    function walk(parts) {
+      if (!parts) return;
+      for (const part of parts) {
+        if (isAttachmentPart(part)) {
+          const cdHeader = (part.headers || []).find(h => h.name.toLowerCase() === "content-disposition")?.value || "";
+          const fname = cdHeader.match(/filename\*?=["']?(?:UTF-8'')?([^"';\n]+)/i)?.[1]
+            || part.filename || `attachment`;
+          const bytes = part.body?.size || 0;
+          const entry = {
+            filename: decodeURIComponent(fname).trim(),
+            contentType: part.mimeType || "application/octet-stream",
+            size: bytes,
+            sizeStr: bytes > 1048576 ? (bytes/1048576).toFixed(1)+' MB' : bytes > 1024 ? (bytes/1024).toFixed(1)+' KB' : bytes+' B',
+          };
+          if (part.body?.attachmentId) {
+            entry.attachmentId = part.body.attachmentId;
+          } else if (part.body?.data) {
+            // Gmail inlines small attachments' bytes directly with no attachmentId —
+            // there's nothing to fetch later, so hand the frontend a ready data URL.
+            const b64 = part.body.data.replace(/-/g, '+').replace(/_/g, '/');
+            entry.dataUrl = `data:${entry.contentType};base64,${b64}`;
+            if (keepInlineData) entry._rawB64 = b64;
+          }
+          attachments.push(entry);
+          continue;
+        }
+        if (part.body?.data && part.mimeType === "text/plain") plain += decodePart(part);
+        else if (part.body?.data && part.mimeType === "text/html") html += decodePart(part);
+        else if (part.parts) walk(part.parts);
+      }
+    }
+    if (msg.payload?.body?.data) {
+      if (msg.payload.mimeType === "text/html") html = decodePart(msg.payload);
+      else plain = decodePart(msg.payload);
+    } else {
+      walk(msg.payload?.parts);
+    }
+
+    // Some senders dump raw HTML into the "plain" part, so strip tags whenever
+    // the chosen body still looks like HTML — not only when a plain part is missing.
+    const looksHtml = (s) => /<\/?(?:!doctype|html|head|body|table|tr|td|div|p|br|span|a|meta|img)[\s/>]/i.test(s);
+    let body = plain;
+    if (!body.trim() || looksHtml(body)) {
+      const src = html && html.trim() ? html : plain;
+      body = htmlToText(src);
+    }
+    return { id: msg.id, from: get("From"), to: get("To"), cc: get("Cc"), subject: get("Subject"), date: get("Date"), headerMessageId: get("Message-ID"), body: body.trim(), html: (html || "").trim(), attachments };
+  });
+  return { threadId, _type: 'gmail', messages };
+}
+
 app.get("/api/emails/:threadId", withAuth, async (req, res) => {
   try {
     if (req.account.type === "microsoft") {
@@ -1364,80 +1449,7 @@ app.get("/api/emails/:threadId", withAuth, async (req, res) => {
       const folder = req.query.folder || "INBOX";
       return res.json(await imap.getThread(req.account.secret, req.params.threadId, folder));
     }
-    const thread = await req.gmail.users.threads.get({ userId: "me", id: req.params.threadId, format: "full" });
-    const messages = (thread.data.messages || []).map((msg) => {
-      const headers = msg.payload?.headers || [];
-      const get = (name) => headers.find(h => h.name.toLowerCase() === name.toLowerCase())?.value || "";
-
-      // Decode a MIME part using the charset declared in its Content-Type header
-      // (emails are often windows-1252 / ISO-8859-1, not UTF-8 — decoding as UTF-8 corrupts them to "?").
-      function decodePart(part) {
-        const buf = Buffer.from(part.body.data, "base64");
-        const ctype = (part.headers || []).find(h => h.name.toLowerCase() === "content-type")?.value || "";
-        const charset = (ctype.match(/charset=["']?([^;"'\s]+)/i)?.[1] || "utf-8").toLowerCase();
-        return iconv.encodingExists(charset) ? iconv.decode(buf, charset) : buf.toString("utf-8");
-      }
-
-      let plain = "", html = "";
-      const attachments = [];
-      // A part is an attachment if it carries a filename or an explicit
-      // Content-Disposition: attachment — the same signal Gmail's own web UI uses.
-      // This must be checked BEFORE the mimeType-based body checks below, otherwise
-      // a text/plain or text/html *file* attachment gets silently merged into the
-      // message body instead of showing up as a downloadable attachment.
-      function isAttachmentPart(part) {
-        if (part.filename && part.filename.trim()) return true;
-        const cd = (part.headers || []).find(h => h.name.toLowerCase() === "content-disposition")?.value || "";
-        return /attachment/i.test(cd);
-      }
-      function walk(parts) {
-        if (!parts) return;
-        for (const part of parts) {
-          if (isAttachmentPart(part)) {
-            const cdHeader = (part.headers || []).find(h => h.name.toLowerCase() === "content-disposition")?.value || "";
-            const fname = cdHeader.match(/filename\*?=["']?(?:UTF-8'')?([^"';\n]+)/i)?.[1]
-              || part.filename || `attachment`;
-            const bytes = part.body?.size || 0;
-            const entry = {
-              filename: decodeURIComponent(fname).trim(),
-              contentType: part.mimeType || "application/octet-stream",
-              size: bytes,
-              sizeStr: bytes > 1048576 ? (bytes/1048576).toFixed(1)+' MB' : bytes > 1024 ? (bytes/1024).toFixed(1)+' KB' : bytes+' B',
-            };
-            if (part.body?.attachmentId) {
-              entry.attachmentId = part.body.attachmentId;
-            } else if (part.body?.data) {
-              // Gmail inlines small attachments' bytes directly with no attachmentId —
-              // there's nothing to fetch later, so hand the frontend a ready data URL.
-              const b64 = part.body.data.replace(/-/g, '+').replace(/_/g, '/');
-              entry.dataUrl = `data:${entry.contentType};base64,${b64}`;
-            }
-            attachments.push(entry);
-            continue;
-          }
-          if (part.body?.data && part.mimeType === "text/plain") plain += decodePart(part);
-          else if (part.body?.data && part.mimeType === "text/html") html += decodePart(part);
-          else if (part.parts) walk(part.parts);
-        }
-      }
-      if (msg.payload?.body?.data) {
-        if (msg.payload.mimeType === "text/html") html = decodePart(msg.payload);
-        else plain = decodePart(msg.payload);
-      } else {
-        walk(msg.payload?.parts);
-      }
-
-      // Some senders dump raw HTML into the "plain" part, so strip tags whenever
-      // the chosen body still looks like HTML — not only when a plain part is missing.
-      const looksHtml = (s) => /<\/?(?:!doctype|html|head|body|table|tr|td|div|p|br|span|a|meta|img)[\s/>]/i.test(s);
-      let body = plain;
-      if (!body.trim() || looksHtml(body)) {
-        const src = html && html.trim() ? html : plain;
-        body = htmlToText(src);
-      }
-      return { id: msg.id, from: get("From"), to: get("To"), cc: get("Cc"), subject: get("Subject"), date: get("Date"), headerMessageId: get("Message-ID"), body: body.trim(), html: (html || "").trim(), attachments };
-    });
-    res.json({ threadId: req.params.threadId, _type: 'gmail', messages });
+    res.json(await gmailGetThread(req.gmail, req.params.threadId));
   } catch (e) {
     console.error("Get thread error:", e.message);
     res.status(500).json({ error: e.message });
@@ -1481,6 +1493,8 @@ const _sendRateMap = new Map();
 const _aiRateMap   = new Map();
 const checkSendRate = (id) => underRate(_sendRateMap, id, 10);   // sends: 10/min
 const checkAIRate   = (id) => underRate(_aiRateMap, id, 30);     // AI calls: 30/min (paid provider APIs)
+const _zipRateMap   = new Map();
+const checkZipRate  = (id) => underRate(_zipRateMap, id, 6);     // zip downloads: 6/min — most expensive route in the app
 
 app.post("/api/send", withAuth, async (req, res) => {
   if (!checkSendRate(req.sessionID))
@@ -1627,58 +1641,188 @@ app.post("/api/empty-trash", withAuth, async (req, res) => {
   }
 });
 
-// ── Attachment download ───────────────────────────────────────────────────────
-// IMAP: GET /api/attachments/imap/:uid/:idx?folder=Sent
+// ── Attachment helpers — shared by preview, download, and ZIP routes ─────────
+const MAX_PREVIEW_BYTES = 25  * 1024 * 1024;   // reject inline preview above this size
+const MAX_ZIP_BYTES     = 100 * 1024 * 1024;   // total uncompressed input for a zip
+const MAX_ZIP_COUNT     = 60;                  // max attachments in one zip
+
+// Types we're willing to hand a browser with Content-Disposition: inline.
+// Deliberately excludes image/svg+xml and text/html — both execute script
+// when navigated to same-origin, so they always force a download instead.
+const INLINE_TYPES = new Set([
+  "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "application/pdf",
+]);
+const INLINE_TEXT_EXT = /\.(txt|log|md|csv|tsv|json|xml|ya?ml|ini|conf|diff|patch|sql|css|js|ts|py|java|c|h|cpp|cs|go|rs|rb|php|sh)$/i;
+
+function isInlineable(contentType, filename) {
+  const ct = String(contentType || "").split(";")[0].trim().toLowerCase();
+  if (INLINE_TYPES.has(ct)) return true;
+  if (ct.startsWith("text/") && ct !== "text/html") return true;
+  if (INLINE_TEXT_EXT.test(String(filename || ""))) return true;
+  return false;
+}
+
+// Strip path separators / drive letters / control chars from an attachment
+// filename before it's used as a zip entry name or Content-Disposition value —
+// attachment filenames are 100% attacker-controlled (they come from the raw
+// MIME message), so this is a security boundary, not cosmetic.
+function sanitizeFilename(name) {
+  var n = String(name || "attachment");
+  // Strip control characters without embedding raw/escaped control bytes in source.
+  n = n.split("").filter(function (c) { var code = c.charCodeAt(0); return code >= 32 && code !== 127; }).join("").trim();
+  n = n.split("\\").join("/");           // normalize Windows-style separators
+  n = n.replace(/^[a-zA-Z]:/, "");       // strip a leading Windows drive letter (C:...)
+  n = path.basename(n);                 // drops any directory component, incl. ../
+  while (n.startsWith(".")) n = n.slice(1);
+  if (!n) n = "attachment";
+  return n.slice(0, 200);
+}
+
+// RFC 5987 Content-Disposition — ASCII fallback + UTF-8 percent-encoded form,
+// so filenames with non-ASCII characters still round-trip correctly.
+function contentDisposition(filename, type) {
+  const safe = sanitizeFilename(filename);
+  const ascii = safe.replace(/[^\x20-\x7e]/g, "_").replace(/"/g, "'");
+  return `${type}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(safe)}`;
+}
+
+// Given a name and a Set/Map of names already used in this zip, return a
+// collision-free entry name ("report.pdf" -> "report (2).pdf" on repeat).
+function uniqueEntryName(used, rawName) {
+  const safe = sanitizeFilename(rawName);
+  if (!used.has(safe)) { used.add(safe); return safe; }
+  const dot = safe.lastIndexOf(".");
+  const base = dot > 0 ? safe.slice(0, dot) : safe;
+  const ext  = dot > 0 ? safe.slice(dot) : "";
+  let n = 2, candidate;
+  do { candidate = `${base} (${n})${ext}`; n++; } while (used.has(candidate));
+  used.add(candidate);
+  return candidate;
+}
+
+// The one place attachment response headers get set — preview and download
+// both funnel through here so header logic can't drift between routes.
+// Never echoes a client-supplied Content-Type; `inline` is only honoured when
+// the server itself classifies the type as safe to render same-origin.
+function sendAttachment(res, att, { inline } = {}) {
+  const ct = String(att.contentType || "application/octet-stream").split(";")[0].trim().toLowerCase();
+  const safeInline = !!inline && isInlineable(ct, att.filename);
+  res.setHeader("Content-Type", safeInline ? ct : "application/octet-stream");
+  res.setHeader("Content-Disposition", contentDisposition(att.filename, safeInline ? "inline" : "attachment"));
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Cache-Control", "private, max-age=300");
+  res.send(att.content);
+}
+
+// Fetch every attachment on a thread in one pass, regardless of provider.
+// Used by the ZIP endpoint — never called per-attachment.
+async function collectThreadAttachments(req, threadId, folder) {
+  if (req.account.type === "imap") {
+    return imap.getAllAttachments(req.account.secret, threadId, folder || "INBOX");
+  }
+  if (req.account.type === "microsoft") {
+    return graph.getThreadAttachments(req.graphToken, threadId);
+  }
+  // Gmail — reuse the inline bytes captured by gmailGetThread when present,
+  // otherwise fetch the attachment by id (one call per non-inline attachment).
+  const thread = await gmailGetThread(req.gmail, threadId, { keepInlineData: true });
+  const out = [];
+  for (const msg of thread.messages) {
+    for (const a of msg.attachments) {
+      if (a._rawB64) {
+        out.push({ filename: a.filename, contentType: a.contentType, size: a.size, content: Buffer.from(a._rawB64, "base64") });
+      } else if (a.attachmentId) {
+        const att = await req.gmail.users.messages.attachments.get({ userId: "me", messageId: msg.id, id: a.attachmentId });
+        out.push({ filename: a.filename, contentType: a.contentType, size: a.size, content: Buffer.from(att.data.data, "base64") });
+      }
+    }
+  }
+  return out;
+}
+
+// ── Attachment download / preview ─────────────────────────────────────────────
+// All three routes accept ?disposition=inline|attachment (default attachment).
+// inline is only honoured when sendAttachment()'s own type whitelist allows it —
+// the query param can request inline, but never dictates the actual Content-Type.
+// IMAP: GET /api/attachments/imap/:uid/:idx?folder=Sent&disposition=inline
 app.get("/api/attachments/imap/:uid/:idx", withAuth, async (req, res) => {
   try {
     if (req.account.type !== "imap") return res.status(400).json({ error: "imap accounts only" });
     const folder = req.query.folder || "INBOX";
+    const inline = req.query.disposition === "inline";
     const att = await imap.getAttachment(req.account.secret, req.params.uid, req.params.idx, folder);
-    res.setHeader("Content-Type", att.contentType);
-    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(att.filename)}"`);
-    res.send(att.content);
+    if (inline && att.content && att.content.length > MAX_PREVIEW_BYTES)
+      return res.status(413).json({ error: "Attachment too large to preview — download instead" });
+    sendAttachment(res, att, { inline });
   } catch (e) { console.error("Attachment error:", e.message); res.status(500).json({ error: e.message }); }
 });
 
-// Gmail: GET /api/attachments/gmail/:msgId/:attId
+// Gmail: GET /api/attachments/gmail/:msgId/:attId?disposition=inline
 app.get("/api/attachments/gmail/:msgId/:attId", withAuth, async (req, res) => {
   try {
     if (req.account.type !== "gmail") return res.status(400).json({ error: "gmail accounts only" });
+    const inline = req.query.disposition === "inline";
     const att = await req.gmail.users.messages.attachments.get({
       userId: "me", messageId: req.params.msgId, id: req.params.attId,
     });
     const buf = Buffer.from(att.data.data, "base64");
-    const fname = req.query.filename || "attachment";
-    res.setHeader("Content-Type", req.query.contentType || "application/octet-stream");
-    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(fname)}"`);
-    res.send(buf);
+    if (inline && buf.length > MAX_PREVIEW_BYTES)
+      return res.status(413).json({ error: "Attachment too large to preview — download instead" });
+    // filename/contentType only ever come from our own query string as a display
+    // hint (the frontend fills them from the thread it already fetched) — never
+    // trusted as the actual Content-Type; sendAttachment re-derives that itself.
+    sendAttachment(res, { filename: req.query.filename || "attachment", contentType: req.query.contentType, content: buf }, { inline });
   } catch (e) { console.error("Gmail attachment error:", e.message); res.status(500).json({ error: e.message }); }
 });
 
-// Microsoft: GET /api/attachments/microsoft/:msgId/:attId
+// Microsoft: GET /api/attachments/microsoft/:msgId/:attId?disposition=inline
 app.get("/api/attachments/microsoft/:msgId/:attId", withAuth, async (req, res) => {
   try {
     if (req.account.type !== "microsoft") return res.status(400).json({ error: "microsoft accounts only" });
-    const https = require("https");
-    const token = req.graphToken;
-    const path = `/v1.0/me/messages/${req.params.msgId}/attachments/${req.params.attId}`;
-    const data = await new Promise((resolve, reject) => {
-      const r = https.request({ hostname: "graph.microsoft.com", path, method: "GET",
-        headers: { Authorization: "Bearer " + token, Accept: "application/json" }
-      }, (res2) => {
-        let d = ""; res2.on("data", c => d += c); res2.on("end", () => {
-          try { resolve(JSON.parse(d)); } catch { reject(new Error("parse error")); }
-        });
-      });
-      r.on("error", reject); r.end();
-    });
-    if (data.error) return res.status(500).json({ error: data.error.message });
-    const buf = Buffer.from(data.contentBytes || "", "base64");
-    const fname = req.query.filename || data.name || "attachment";
-    res.setHeader("Content-Type", data.contentType || "application/octet-stream");
-    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(fname)}"`);
-    res.send(buf);
+    const inline = req.query.disposition === "inline";
+    const att = await graph.getAttachment(req.graphToken, req.params.msgId, req.params.attId);
+    if (inline && att.content && att.content.length > MAX_PREVIEW_BYTES)
+      return res.status(413).json({ error: "Attachment too large to preview — download instead" });
+    sendAttachment(res, { filename: req.query.filename || att.filename, contentType: att.contentType, content: att.content }, { inline });
   } catch (e) { console.error("MS attachment error:", e.message); res.status(500).json({ error: e.message }); }
+});
+
+// ── Attachment download-all — one ZIP per thread ──────────────────────────────
+// GET /api/attachments/zip/:threadId?accountId=&folder=&name=
+// Thread-scoped and re-derives the attachment list server-side (via
+// collectThreadAttachments) rather than trusting a client-supplied list —
+// keeps the endpoint from being usable to enumerate arbitrary attachment ids.
+app.get("/api/attachments/zip/:threadId", withAuth, async (req, res) => {
+  if (!checkZipRate(req.sessionID))
+    return res.status(429).json({ error: "Too many downloads — wait a minute and try again" });
+  try {
+    const items = await collectThreadAttachments(req, req.params.threadId, req.query.folder);
+    if (!items.length) return res.status(404).json({ error: "No attachments in this thread" });
+    if (items.length > MAX_ZIP_COUNT)
+      return res.status(413).json({ error: `Too many attachments to zip (${items.length} > ${MAX_ZIP_COUNT})` });
+    const totalBytes = items.reduce((n, it) => n + (it.content?.length || 0), 0);
+    if (totalBytes > MAX_ZIP_BYTES)
+      return res.status(413).json({ error: "Attachments too large to zip (over 100 MB total)" });
+
+    const zipName = sanitizeFilename((req.query.name || "attachments") + ".zip");
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", contentDisposition(zipName, "attachment"));
+    res.setHeader("X-Content-Type-Options", "nosniff");
+
+    const zip = archiver("zip", { zlib: { level: 6 } });   // 9 wastes CPU on already-compressed pdf/jpg
+    zip.on("error", (e) => {
+      console.error("Zip build error:", e.message);
+      if (!res.headersSent) res.status(500).json({ error: e.message }); else res.destroy();
+    });
+    res.on("close", () => { try { zip.destroy(); } catch {} });   // client aborted mid-stream
+    zip.pipe(res);
+    const used = new Set();
+    for (const it of items) zip.append(it.content, { name: uniqueEntryName(used, it.filename) });
+    await zip.finalize();
+  } catch (e) {
+    console.error("Zip attachments error:", e.message);
+    if (!res.headersSent) res.status(500).json({ error: e.message });
+  }
 });
 
 // ── Clear AI cache ────────────────────────────────────────────────────────────
