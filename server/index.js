@@ -1502,6 +1502,7 @@ app.post("/api/send", withAuth, async (req, res) => {
   try {
     const { threadId, to, cc, bcc, subject, body, html, inReplyTo, references, attachments } = req.body;
     if (!to) return res.status(400).json({ error: "recipient required" });
+    console.log(`send: request received, account=${req.account.type}`);
 
     // Sending to someone is the strongest "this sender matters to me" signal —
     // feeds the relationship score used for inbox priority ranking.

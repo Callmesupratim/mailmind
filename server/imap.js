@@ -3,6 +3,7 @@
 const { ImapFlow } = require("imapflow");
 const { simpleParser } = require("mailparser");
 const nodemailer = require("nodemailer");
+const MailComposer = require("nodemailer/lib/mail-composer");
 
 const PAGE_SIZE = 25;
 
@@ -25,6 +26,31 @@ function makeSmtpTransport(creds) {
   return nodemailer.createTransport({
     host: creds.smtpHost, port, secure, ...SMTP_TIMEOUTS,
     auth: { user: creds.user, pass: creds.pass },
+  });
+}
+
+// Raw SMTP send has nothing to do with IMAP folders — unlike Gmail/Graph, which
+// save a Sent copy as part of their send API, a plain SMTP AUTH send only hands
+// the message to the MTA for delivery. Build the MIME message once so the exact
+// same bytes can be sent AND appended to the Sent folder afterwards.
+function buildRawMessage({ from, to, cc, bcc, subject, body, html, headers, attachments }) {
+  const opts = {
+    from: from || "",
+    to, cc, bcc,
+    subject: subject || "(no subject)",
+    ...(html ? { html, text: body || "" } : { text: body || "" }),
+    headers: headers || {},
+    attachments: (attachments || []).map(a => ({
+      filename: a.filename,
+      contentType: a.contentType || "application/octet-stream",
+      content: Buffer.from(a.data, "base64"),
+    })),
+  };
+  return new Promise((resolve, reject) => {
+    new MailComposer(opts).compile().build((err, buffer) => {
+      if (err) return reject(err);
+      resolve(buffer);
+    });
   });
 }
 
@@ -375,20 +401,30 @@ module.exports = {
 
   // ── Send ──────────────────────────────────────────────────────────────────
   async send(creds, { to, cc, bcc, subject, body, html, inReplyTo, references, attachments }) {
-    const transport = makeSmtpTransport(creds);
     const headers = {};
     if (inReplyTo) headers["In-Reply-To"] = inReplyTo;
     if (references) headers["References"]  = references;
+    const raw = await buildRawMessage({ from: creds.user, to, cc, bcc, subject, body, html, headers, attachments });
+
+    console.log(`imap send: connecting to ${creds.smtpHost}:${creds.smtpPort || 465}`);
+    const transport = makeSmtpTransport(creds);
     const info = await transport.sendMail({
-      from: creds.user, to, cc, bcc, subject,
-      ...(html ? { html, text: body || '' } : { text: body || '' }),
-      headers,
-      attachments: (attachments || []).map(a => ({
-        filename: a.filename,
-        contentType: a.contentType || "application/octet-stream",
-        content: Buffer.from(a.data, "base64"),
-      })),
+      envelope: { from: creds.user, to: [to, cc, bcc].filter(Boolean).join(",") },
+      raw,
     });
+    console.log(`imap send: delivered, messageId=${info.messageId}`);
+
+    // Best-effort: the message already left the building via SMTP above, so a
+    // failure here must never surface as a send failure — just log it.
+    try {
+      await withClient(creds, async (client) => {
+        const folders = await resolveFolders(client);
+        await client.append(folders.sent, raw, ["\\Seen"]);
+      });
+      console.log("imap send: saved copy to Sent folder");
+    } catch (e) {
+      console.error("imap send: Sent-folder append failed (message WAS delivered):", e.message);
+    }
     return info.messageId;
   },
 
