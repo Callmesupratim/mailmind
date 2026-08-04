@@ -1,6 +1,6 @@
 {
   "name": "mailmind",
-  "version": "1.1.21",
+  "version": "1.1.22",
   "description": "Gmail-connected AI email assistant powered by Groq",
   "author": "Phoenixtek Solution",
   "main": "main.js",

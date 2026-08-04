@@ -375,14 +375,7 @@ module.exports = {
 
   // ── Send ──────────────────────────────────────────────────────────────────
   async send(creds, { to, cc, bcc, subject, body, html, inReplyTo, references, attachments }) {
-    const authConfig = creds.accessToken
-      ? { type: "OAuth2", user: creds.user, accessToken: creds.accessToken }
-      : { user: creds.user, pass: creds.pass };
-    const transport = nodemailer.createTransport({
-      host: creds.smtpHost, port: creds.smtpPort || 465,
-      secure: (creds.smtpPort || 465) === 465,
-      auth: authConfig,
-    });
+    const transport = makeSmtpTransport(creds);
     const headers = {};
     if (inReplyTo) headers["In-Reply-To"] = inReplyTo;
     if (references) headers["References"]  = references;
