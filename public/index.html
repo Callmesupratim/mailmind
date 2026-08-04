@@ -205,6 +205,7 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .det-av{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0}
 .det-from-name{font-size:13px;font-weight:600;color:var(--t1)}
 .det-from-email{font-family:var(--font-mono);font-size:10px;color:var(--t3);margin-top:1px}
+.det-from-to{font-size:10.5px;color:var(--t3);margin-top:2px;overflow-wrap:anywhere}
 .det-from-time{font-family:var(--font-mono);font-size:10px;color:var(--t3)}
 .det-text{font-size:14px;line-height:1.65;color:var(--t1)}
 .det-text p{margin-bottom:12px}
@@ -2383,6 +2384,11 @@ function renderDetail(thread) {
     const ini = initials(m.from||'?');
     const name = (m.from||'').replace(/<[^>]+>/,'').trim() || m.from || '';
     const emailAddr = (m.from||'').match(/<(.+)>/)?.[1] || m.from || '';
+    const toList = splitAddrs(m.to);
+    const ccList = splitAddrs(m.cc);
+    const recipLine = (toList.length || ccList.length)
+      ? `<div class="det-from-to">${toList.length ? 'to ' + esc(toList.join(', ')) : ''}${toList.length && ccList.length ? ' &middot; ' : ''}${ccList.length ? 'cc ' + esc(ccList.join(', ')) : ''}</div>`
+      : '';
     const content = m.html
       ? `<div class="det-text" style="overflow-x:auto"><div class="det-html-frame" data-midx="${i}"></div></div>`
       : `<div class="det-text">${(m.body||'').split('\n').map(l => `<p>${esc(l)||'&nbsp;'}</p>`).join('')}</div>`;
@@ -2393,6 +2399,7 @@ function renderDetail(thread) {
         <div style="flex:1;min-width:0">
           <div class="det-from-name">${esc(name)}</div>
           <div class="det-from-email">${esc(emailAddr)}</div>
+          ${recipLine}
         </div>
         <div class="det-from-time">${esc(fmtDate(m.date))}</div>
       </div>
