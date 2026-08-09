@@ -50,6 +50,19 @@ db.exec(`
     last_seen    INTEGER,
     ping_count   INTEGER DEFAULT 1
   );
+  CREATE TABLE IF NOT EXISTS contacts (
+    account_id INTEGER NOT NULL,
+    email      TEXT    NOT NULL,            -- lowercased bare address
+    name       TEXT    NOT NULL DEFAULT '', -- best-known display name ('' = unknown)
+    sent_count INTEGER NOT NULL DEFAULT 0,  -- times the user ADDRESSED them (To/CC/BCC)
+    seen_count INTEGER NOT NULL DEFAULT 0,  -- distinct received threads they appeared in
+    last_used  INTEGER,
+    PRIMARY KEY (account_id, email)
+  );
+  -- Recipient autocomplete searches across ALL accounts, so it can't use the
+  -- (account_id, email) primary-key index. This one makes email LIKE 'q%' a range scan.
+  CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email);
+  CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, applied_at INTEGER);
 `);
 
 // ── Encryption (AES-256-GCM) ───────────────────────────────────────────────────
@@ -90,6 +103,45 @@ if (accountCount === 0) {
   }
 }
 
+// ── One-time backfill: seed `contacts` from the pre-existing sender tables ─────
+// sender_seen / sender_replies already hold up to 90 days of real addresses, so
+// seeding makes recipient autocomplete useful on first run instead of starting
+// empty. Those tables store no display names, so `name` stays '' until live
+// ingestion fills it in.
+// Runs BEFORE the 90-day sender_seen prune below, so the first run sees the
+// maximum available history. Idempotency comes from the `migrations` marker row
+// (not from row state), so it survives someone emptying `contacts`.
+const MIG_CONTACTS = "contacts_backfill_v1";
+if (!db.prepare("SELECT 1 FROM migrations WHERE name = ?").get(MIG_CONTACTS)) {
+  const tx = db.transaction(() => {
+    // LIKE '%_@_%' uses `_` as the SINGLE-CHAR wildcard on purpose — it means
+    // "contains an @ with at least one character either side". Not a typo.
+    // MAX(a, b) with two args is SQLite's scalar max, not the aggregate — correct here.
+    db.prepare(`
+      INSERT INTO contacts (account_id, email, name, sent_count, seen_count, last_used)
+      SELECT account_id, LOWER(sender_email), '', 0, COUNT(*), MAX(COALESCE(received_ts, 0))
+      FROM sender_seen WHERE sender_email LIKE '%_@_%'
+      GROUP BY account_id, LOWER(sender_email)
+      ON CONFLICT(account_id, email) DO UPDATE SET
+        seen_count = MAX(seen_count, excluded.seen_count),
+        last_used  = MAX(COALESCE(last_used, 0), excluded.last_used)
+    `).run();
+    db.prepare(`
+      INSERT INTO contacts (account_id, email, name, sent_count, seen_count, last_used)
+      SELECT account_id, LOWER(sender_email), '', replied_count, 0, COALESCE(last_replied, 0)
+      FROM sender_replies WHERE sender_email LIKE '%_@_%'
+      ON CONFLICT(account_id, email) DO UPDATE SET
+        sent_count = MAX(sent_count, excluded.sent_count),
+        last_used  = MAX(COALESCE(last_used, 0), excluded.last_used)
+    `).run();
+    // Never suggest the user back to themselves
+    db.prepare(`DELETE FROM contacts WHERE email IN
+      (SELECT LOWER(email) FROM accounts WHERE email IS NOT NULL AND email <> '')`).run();
+    db.prepare("INSERT INTO migrations (name, applied_at) VALUES (?, ?)").run(MIG_CONTACTS, Date.now());
+  });
+  try { tx(); } catch (e) { console.error("contacts backfill failed:", e.message); }
+}
+
 // ── Statements ─────────────────────────────────────────────────────────────────
 const stmtList     = db.prepare("SELECT id, type, email, label, active FROM accounts ORDER BY created_at ASC");
 const stmtGet      = db.prepare("SELECT * FROM accounts WHERE id = ?");
@@ -128,6 +180,50 @@ const stmtSenderReplyUpsert = db.prepare(`
 const stmtSenderReplyGet = db.prepare(`
   SELECT replied_count, last_replied FROM sender_replies WHERE account_id = ? AND sender_email = ?
 `);
+// ── Contacts statements (recipient autocomplete) ──────────────────────────────
+const stmtContactBump = db.prepare(`
+  INSERT INTO contacts (account_id, email, name, sent_count, seen_count, last_used)
+  VALUES (@accountId, @email, @name, @sent, @seen, @ts)
+  ON CONFLICT(account_id, email) DO UPDATE SET
+    sent_count = sent_count + @sent,
+    seen_count = seen_count + @seen,
+    name       = CASE WHEN @name <> '' THEN @name ELSE name END,
+    last_used  = MAX(COALESCE(last_used, 0), @ts)
+`);
+
+// Ranked prefix search, aggregated across every connected account — one person,
+// one address book. MAX(name) over TEXT prefers any real name to '' (the empty
+// string sorts below everything), so a name learned on one mailbox surfaces on all.
+//
+// Ranking is three STRICT keys, not a weighted blend: "I have emailed this person"
+// is categorically stronger than "mail arrived from them", so someone emailed once
+// must outrank a newsletter received 400 times. A blended score (sent*10 + seen)
+// needs a magic constant and inverts at scale. Recency breaks ties in the long tail.
+//
+// The name match is a subquery on `email`, NOT a plain `OR name LIKE @pre`, because
+// WHERE filters ROWS before GROUP BY: if a contact's name is known on one account
+// but blank on another, the plain form drops the blank-named row and silently loses
+// its sent/seen counts from the SUM. Selecting the whole group by email fixes that,
+// and keeps the idx_contacts_email range scan for the common email-prefix case.
+const stmtContactSearch = db.prepare(`
+  SELECT email,
+         MAX(name)       AS name,
+         SUM(sent_count) AS sent_count,
+         SUM(seen_count) AS seen_count,
+         MAX(last_used)  AS last_used
+  FROM contacts
+  WHERE email LIKE @pre ESCAPE '\\'
+     OR email LIKE @dom ESCAPE '\\'
+     OR email IN (SELECT email FROM contacts
+                  WHERE name LIKE @pre ESCAPE '\\' OR name LIKE @word ESCAPE '\\')
+  GROUP BY email
+  ORDER BY SUM(sent_count) DESC,
+           SUM(seen_count) DESC,
+           MAX(last_used)  DESC,
+           email ASC
+  LIMIT @limit
+`);
+
 // Prune sender_seen rows older than 90 days so the table doesn't grow unbounded
 db.prepare("DELETE FROM sender_seen WHERE received_ts < ?").run(Date.now() - 90 * 24 * 60 * 60 * 1000);
 
@@ -236,9 +332,12 @@ module.exports = {
   // ── Sender relationship (for priority scoring) ────────────────────────────────
   // Idempotent per (account, sender, thread) — safe to call on every list poll
   // without inflating the count when the same thread is re-fetched.
+  // Returns true only when a row was ACTUALLY inserted (i.e. the first time this
+  // thread was ever seen). Callers use that to gate once-per-thread side effects —
+  // this runs on every list poll, so anything ungated would inflate without bound.
   recordSenderSeen(accountId, senderEmail, threadId, receivedTs) {
-    if (!senderEmail || !threadId) return;
-    stmtSenderSeenInsert.run(accountId, senderEmail, threadId, receivedTs || Date.now());
+    if (!senderEmail || !threadId) return false;
+    return stmtSenderSeenInsert.run(accountId, senderEmail, threadId, receivedTs || Date.now()).changes > 0;
   },
   // Call once per actual send — each call is a real user action, so a plain
   // increment (no dedup) is correct here.
@@ -256,6 +355,41 @@ module.exports = {
       lastReceived:  seen.last_received || null,
       lastReplied:   replied.last_replied || null,
     };
+  },
+
+  // ── Contacts (recipient autocomplete) ────────────────────────────────────────
+  // sent = the user addressed them (strong signal); seen = they appeared in
+  // received mail (weak, tie-break only). Callers pass 1/0 for whichever applies.
+  recordContact(accountId, email, name, sent, seen, ts) {
+    if (!email) return;
+    stmtContactBump.run({
+      accountId,
+      email: String(email).toLowerCase(),
+      name: (name || "").slice(0, 120),
+      sent: sent | 0,
+      seen: seen | 0,
+      ts: ts || Date.now(),
+    });
+  },
+  searchContacts(q, limit = 8) {
+    const raw = String(q || "").trim().toLowerCase();
+    if (raw.length < 2) return [];
+    // Escape LIKE metacharacters so a query of "%" doesn't match the entire table.
+    const e = raw.replace(/[\\%_]/g, (c) => "\\" + c);
+    return stmtContactSearch.all({
+      pre:  e + "%",
+      word: "% " + e + "%",   // match on a later word of the display name (surname)
+      dom:  "%@" + e + "%",   // match on the DOMAIN, so "phoenixtek" finds everyone there.
+                              // Anchored to "@" rather than a blanket "%q%" so it stays
+                              // predictable and doesn't surface junk mid-address matches.
+      limit: Math.min(Math.max(limit | 0, 1), 25),
+    }).map(r => ({
+      email: r.email,
+      name:  r.name || "",
+      sent:  r.sent_count,
+      seen:  r.seen_count,
+      last:  r.last_used,
+    }));
   },
 
   // ── Telemetry ──────────────────────────────────────────────────────────────────

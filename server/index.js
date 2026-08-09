@@ -652,13 +652,75 @@ function extractEmail(addr) {
   return (m ? m[1] : addr || "").trim().toLowerCase();
 }
 
+// Split an RFC-822 address list on commas that are NOT inside quotes or angle
+// brackets. A naive .split(",") mangles `"Doe, John" <j@x.com>` into two junk
+// addresses — which is exactly what the send path used to do.
+function splitAddrList(s) {
+  const out = [];
+  let cur = "", inQuote = false, inAngle = false;
+  for (const ch of String(s || "")) {
+    if (ch === '"' && !inAngle) { inQuote = !inQuote; cur += ch; continue; }
+    if (!inQuote && ch === "<") inAngle = true;
+    else if (!inQuote && ch === ">") inAngle = false;
+    if (ch === "," && !inQuote && !inAngle) { out.push(cur); cur = ""; continue; }
+    cur += ch;
+  }
+  out.push(cur);
+  return out.map(x => x.trim()).filter(Boolean);
+}
+
+// Pull the display name out of `Name <addr@host>`; "" when there isn't a real one.
+function extractName(addr) {
+  const s = String(addr || "").trim();
+  const m = s.match(/^(.*?)\s*<[^>]+>$/);
+  let n = (m ? m[1] : "").trim().replace(/^"(.*)"$/, "$1").trim();
+  if (!n || n.toLowerCase() === extractEmail(s)) return "";
+  return n.slice(0, 120);
+}
+
+// The user's own addresses — never suggest someone back to themselves.
+const selfEmailSet = () => {
+  try { return new Set(store.listAccounts().map(a => (a.email || "").toLowerCase()).filter(Boolean)); }
+  catch { return new Set(); }
+};
+
+// Record every address in the given header values as a known contact.
+// `sent` = the user addressed them (strong signal); `seen` = they merely appeared
+// in received mail (weak, tie-break only).
+function recordContacts(accountId, headerValues, { sent = 0, seen = 0, ts = Date.now(), self } = {}) {
+  const selfKeys = self || selfEmailSet();
+  const done = new Set();                       // dedupe within a single message
+  for (const hv of headerValues) {
+    if (!hv) continue;                          // e.to is absent on IMAP list rows
+    for (const raw of splitAddrList(hv)) {
+      const email = extractEmail(raw);
+      if (!email || email.length > 254) continue;
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) continue;
+      if (selfKeys.has(email) || done.has(email)) continue;
+      done.add(email);
+      try { store.recordContact(accountId, email, extractName(raw), sent, seen, ts); } catch {}
+    }
+  }
+}
+
 // Record every sender in a fetched list against the sender-relationship table
 // and attach each email's known relationship stats + bulk-mail signal.
 function enrichWithSenderStats(accountId, emails) {
+  const self = selfEmailSet();                  // built once per batch, not per email
   for (const e of emails) {
     const senderEmail = extractEmail(e.sender);
-    try { store.recordSenderSeen(accountId, senderEmail, e.id, e._sortTs || Date.now()); } catch {}
+    let firstSight = false;
+    try { firstSight = store.recordSenderSeen(accountId, senderEmail, e.id, e._sortTs || Date.now()); } catch {}
     try { e.senderStats = store.getSenderStats(accountId, senderEmail); } catch { e.senderStats = null; }
+    // Only harvest contacts the FIRST time we ever see this thread. This function
+    // runs on every list poll (background sync is every 5 min); without the gate
+    // seen_count would grow without bound and the ranking would degenerate into
+    // "whatever happens to be in the inbox right now".
+    if (firstSight) {
+      try {
+        recordContacts(accountId, [e.sender, e.to, e.cc], { seen: 1, ts: e._sortTs || Date.now(), self });
+      } catch {}
+    }
   }
   return emails;
 }
@@ -1495,6 +1557,31 @@ const checkSendRate = (id) => underRate(_sendRateMap, id, 10);   // sends: 10/mi
 const checkAIRate   = (id) => underRate(_aiRateMap, id, 30);     // AI calls: 30/min (paid provider APIs)
 const _zipRateMap   = new Map();
 const checkZipRate  = (id) => underRate(_zipRateMap, id, 6);     // zip downloads: 6/min — most expensive route in the app
+const _contactsRateMap = new Map();
+const checkContactsRate = (id) => underRate(_contactsRateMap, id, 120); // autocomplete: fires per keystroke burst
+
+// ── Recipient autocomplete ────────────────────────────────────────────────────
+// Ranked suggestions from learned contact history, pooled across ALL accounts —
+// one person, one address book, and the compose From-selector can change after
+// you've started typing.
+// Fails SOFT in every path (200 + empty list): a broken autocomplete must never
+// raise an error toast while the user is mid-keystroke.
+app.get("/api/contacts", withAuth, (req, res) => {
+  try {
+    if (!checkContactsRate(req.sessionID)) return res.json({ contacts: [] });
+    const q = String(req.query.q || "").trim();
+    if (q.length < 2) return res.json({ contacts: [] });
+    const limit = Math.min(parseInt(req.query.limit) || 8, 20);
+    const self = selfEmailSet();
+    // Over-fetch by self.size so filtering own addresses can't shrink the page.
+    const out = store.searchContacts(q, limit + self.size)
+      .filter(c => !self.has(c.email))
+      .slice(0, limit);
+    res.json({ contacts: out });
+  } catch (e) {
+    res.json({ contacts: [] });
+  }
+});
 
 app.post("/api/send", withAuth, async (req, res) => {
   if (!checkSendRate(req.sessionID))
@@ -1506,9 +1593,13 @@ app.post("/api/send", withAuth, async (req, res) => {
 
     // Sending to someone is the strongest "this sender matters to me" signal —
     // feeds the relationship score used for inbox priority ranking.
+    // sender_replies deliberately stays To-ONLY: inbox priority ranking is
+    // calibrated against it and must not shift. Only `contacts` gains CC/BCC.
     try {
-      String(to).split(",").map(extractEmail).filter(Boolean)
+      const self = selfEmailSet(), ts = Date.now();
+      splitAddrList(to).map(extractEmail).filter(Boolean)
         .forEach(addr => store.recordSenderReply(req.account.id, addr));
+      recordContacts(req.account.id, [to, cc, bcc], { sent: 1, ts, self });
     } catch {}
 
     if (req.account.type === "microsoft") {
