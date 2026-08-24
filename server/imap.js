@@ -164,6 +164,19 @@ function structureHasAttachment(node) {
   return (node.childNodes || []).some(structureHasAttachment);
 }
 
+// Detect a calendar invite part (text/calendar or an .ics attachment) from the
+// bodyStructure we already fetch — no extra round-trip. Defensive about node
+// shape: imapflow may expose the type as "text/calendar" or as type+subtype.
+function structureHasCalendar(node) {
+  if (!node) return false;
+  const type = (node.type || "").toLowerCase();
+  const subtype = (node.subtype || "").toLowerCase();
+  if (type === "text/calendar" || (type === "text" && subtype === "calendar") || type.includes("calendar")) return true;
+  const name = (node.dispositionParameters?.filename || node.parameters?.name || "").toLowerCase();
+  if (name.endsWith(".ics")) return true;
+  return (node.childNodes || []).some(structureHasCalendar);
+}
+
 module.exports = {
   // ── Connection test (used by Add Mailbox) ──────────────────────────────────
   async testConnection(creds) {
@@ -232,12 +245,14 @@ module.exports = {
             subject: env.subject || "(no subject)",
             date: env.date ? new Date(env.date).toISOString() : "",
             snippet: "",
+            to: addrText(env.to),
             cc: addrText(env.cc),
             count: 1,
             unread: !msg.flags.has("\\Seen"),
             starred: msg.flags.has("\\Flagged"),
             importance,
             hasAttachments: structureHasAttachment(msg.bodyStructure),
+            hasCalendar: structureHasCalendar(msg.bodyStructure),
             isBulk,
           });
         }

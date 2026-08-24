@@ -103,10 +103,21 @@ const STREAM_SYSTEM_PROMPT = _SYSTEM_BASE + `\n• Return ONLY plain email body 
 // Used for inbox-wide bulk categorization — a much lighter task than thread
 // analysis, so it gets its own small, cheap system prompt rather than _SYSTEM_BASE.
 const BATCH_CLASSIFY_SYSTEM =
-`You are a fast email triage classifier. For each email given (id, sender, subject, snippet),
-assign exactly one category: "work", "financial", "shopping", "promotional", or "spam".
-Use "work" for anything that doesn't clearly fit the other four — professional correspondence,
-personal messages, government/security notices, and anything ambiguous all default to "work".
+`You are a fast email triage classifier. For each email (id, sender, subject, snippet, and boolean hints) assign TWO independent labels.
+
+CATEGORY (what the email is about) — exactly one of:
+"work", "financial", "shopping", "promotional", "spam".
+Use "work" for anything that doesn't clearly fit the other four — professional correspondence, personal messages, government/security notices, and anything ambiguous all default to "work".
+
+ACTION (what the user must do) — exactly one of:
+"needaction" (they must reply or do something), "schedule" (a meeting, invite, appointment, or deadline), "pending" (the user already responded or it is in transit — the ball is in someone else's court), "conversations" (human back-and-forth with no explicit ask), "readonly" (nothing to do — receipts, newsletters, notifications).
+
+The two labels are INDEPENDENT — a financial email can be needaction, a work email can be readonly. Do not correlate them.
+
+The boolean hints are GROUND TRUTH and outrank the text: bulk=true → readonly; sent=true → pending; cal=true → schedule; direct=true means it was addressed to the user (not merely CC'd); n is the number of messages in the thread.
+
+If you cannot tell the action, use "readonly" ONLY when the email plainly requires nothing; otherwise use "conversations". Never default to readonly for a message that might need a reply.
+
 Output strict JSON only — no markdown fences, no explanations outside JSON.`;
 
 // ── Route table (used by analysis, streaming, quick-replies) ──────────────────
@@ -164,17 +175,22 @@ async function callAnalysis(threadContext, { provider, model, apiKey, tone }) {
   return _openAIJson(userContent, { ...h, key: resolveKey(p, apiKey), model: m });
 }
 
-// ── Batch inbox-wide categorization — one call classifies many emails ────────
-// items: [{id, sender, subject, snippet}]. Returns [{id, category}].
+// ── Batch inbox-wide classification — one call assigns BOTH labels to many emails ──
+// items: [{id, sender, subject, snippet, bulk, direct, sent, cal, n}].
+// Returns [{id, category, action}] — action is null if the model omits or garbles it.
 async function classifyBatch(items, { provider, model, apiKey }) {
   const p = (provider || DEFAULT_PROVIDER).toLowerCase();
   const m = resolveModel(p, model);
-  const userContent = `Classify each email below. Return ONLY valid JSON: {"results":[{"id":"<id>","category":"work|financial|shopping|promotional|spam"}]}\n\nEMAILS:\n` +
+  const userContent = `Classify each email below. Return ONLY valid JSON: {"results":[{"id":"<id>","category":"work|financial|shopping|promotional|spam","action":"needaction|schedule|pending|conversations|readonly"}]}\n\nEMAILS:\n` +
     JSON.stringify(items.map(it => ({
-      id: it.id,
+      // Use the caller's composite key as the id when present, so two accounts'
+      // colliding message ids stay distinct in the prompt and the returned results.
+      id: it._key || it.id,
       sender: (it.sender || "").slice(0, 200),
       subject: (it.subject || "").slice(0, 200),
       snippet: (it.snippet || "").slice(0, 300),
+      // Boolean signals, not recipient lists — tiny payload, nothing sensitive leaves the box.
+      bulk: !!it.bulk, direct: !!it.direct, sent: !!it.sent, cal: !!it.cal, n: it.n | 0,
     })));
 
   let text;
@@ -183,8 +199,13 @@ async function classifyBatch(items, { provider, model, apiKey }) {
   else { const h = OPENAI_HOSTS[p] || OPENAI_HOSTS.groq; text = await _openAIJson(userContent, { ...h, key: resolveKey(p, apiKey), model: m, system: BATCH_CLASSIFY_SYSTEM }); }
 
   const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] || text);
-  const VALID = new Set(["work", "financial", "shopping", "promotional", "spam"]);
-  return (parsed.results || []).filter(r => r && r.id && VALID.has(r.category));
+  const VALID_CAT = new Set(["work", "financial", "shopping", "promotional", "spam"]);
+  const VALID_ACT = new Set(["needaction", "schedule", "pending", "conversations", "readonly"]);
+  // Keep a row only if its category validates; attach the action only if IT validates too —
+  // a garbage action must never discard an otherwise-good category.
+  return (parsed.results || [])
+    .filter(r => r && r.id && VALID_CAT.has(r.category))
+    .map(r => ({ id: r.id, category: r.category, action: VALID_ACT.has(r.action) ? r.action : null }));
 }
 
 // Anthropic: prompt-cached system block + temperature 0.1 for deterministic JSON
@@ -1287,6 +1308,10 @@ app.get("/api/emails/all", async (req, res) => {
               const msgs = thread.data.messages || [];
               const first = msgs[0], last = msgs[msgs.length - 1] || first;
               const hdr = (m, n) => (m?.payload?.headers||[]).find(h=>h.name.toLowerCase()===n.toLowerCase())?.value||"";
+              // Same "did I send the last message?" signal as the single-account
+              // mapper — recomputed here because this branch is a separate, slimmer path.
+              const myEmail = (acc.email || "").toLowerCase();
+              const isSentByMe = !!myEmail && hdr(last, "From").toLowerCase().includes(myEmail);
               return {
                 id: t.id, subject: hdr(first,"Subject")||"(no subject)",
                 sender: hdr(last,"From"), to: hdr(last,"To"), cc: hdr(last,"Cc"),
@@ -1301,6 +1326,8 @@ app.get("/api/emails/all", async (req, res) => {
                 // Bulk-mail signal — List-Unsubscribe / Precedence: bulk mark automated/marketing
                 // mail far more reliably than keyword matching on subject/snippet.
                 isBulk: msgs.some(m => hdr(m, "List-Unsubscribe") || /bulk/i.test(hdr(m, "Precedence"))),
+                isSentByMe,
+                hasCalendar: msgs.some(m => /text\/calendar/i.test(hdr(m, "Content-Type"))),
               };
             } catch { return null; }
           }));
@@ -1401,6 +1428,11 @@ app.get("/api/emails", withAuth, async (req, res) => {
           // Bulk-mail signal — List-Unsubscribe / Precedence: bulk mark automated/marketing
           // mail far more reliably than keyword matching on subject/snippet.
           isBulk: msgs.some(m => hdr(m, "List-Unsubscribe") || /bulk/i.test(hdr(m, "Precedence"))),
+          // Action-label signals (see actionRegex in the frontend):
+          // isSentByMe → the last message is ours, so the ball is in their court ("Pending").
+          isSentByMe,
+          // hasCalendar → a calendar invite part; Content-Type is already in metadataHeaders.
+          hasCalendar: msgs.some(m => /text\/calendar/i.test(hdr(m, "Content-Type"))),
         };
       } catch (threadErr) {
         console.error("Thread parse error:", t.id, threadErr.message);
@@ -1923,35 +1955,75 @@ app.post("/api/cache/clear", withAuth, (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── AI: batch inbox categorization ────────────────────────────────────────────
-// Client sends only the emails its own regex categorizer is uncertain about
-// (the "default → work" bucket); each is cached by message id (ai_cache, 7-day
-// TTL like the rest of the AI cache) so it's only re-classified once per week
-// no matter how many times it's re-fetched by later polls or across sessions.
+// ── AI: batch inbox classification (topic category + action label) ────────────
+// The client sends only the emails its own regex classifiers are uncertain about.
+// Each is cached by (account, message id) for 7 days — the v2 cache holds BOTH
+// labels; a stored null means "the model declined, don't re-ask this week".
 app.post("/api/classify-batch", withAuth, async (req, res) => {
   if (!checkAIRate(req.sessionID))
     return res.status(429).json({ error: "Too many AI requests — wait a minute and try again" });
   try {
     const { items, model, provider, apiKey } = req.body;
-    if (!Array.isArray(items) || !items.length) return res.json({ categories: {} });
+    if (!Array.isArray(items) || !items.length) return res.json({ categories: {}, actions: {} });
 
-    const categories = {};
+    // Everything downstream is keyed by a COMPOSITE `acct:id`, not the bare message
+    // id: IMAP uids are small integers that collide across accounts, so in all-mail
+    // view two accounts can share id "5". Bare-id keying would make them poison each
+    // other's label — in the response, in the cache, and even in the AI prompt (the
+    // model would see two items both called "5"). The composite key is unique.
+    const keyOf = (it) => `${it.acct || "-"}:${it.id}`;
+    const categories = {}, actions = {};
     const uncached = [];
     for (const it of items.slice(0, 100)) {
       if (!it || !it.id) continue;
-      const hit = store.getCache(`aicat:${it.id}`);
-      if (hit) categories[it.id] = hit;
-      else uncached.push(it);
+      const key = keyOf(it);
+      // v2 cache holds both labels, account-scoped. A hit fully resolves the item.
+      const hit = store.getCache(`aiv2:${key}`);
+      if (hit && typeof hit === "object") {
+        if (hit.c) categories[key] = hit.c;
+        if (hit.a) actions[key] = hit.a;
+        continue;
+      }
+      // Legacy read-compat: a v1 topic-only entry (bare-id keyed) still supplies the
+      // category so existing users don't re-pay for it. Read-only — nothing writes aicat:.
+      const legacy = store.getCache(`aicat:${it.id}`);
+      if (legacy && typeof legacy === "string") categories[key] = legacy;
+      uncached.push({ ...it, _key: key });
     }
 
     if (uncached.length) {
-      const results = await classifyBatch(uncached, { provider, model, apiKey });
-      for (const r of results) {
-        categories[r.id] = r.category;
-        store.setCache(`aicat:${r.id}`, r.category);
+      // Chunk at 25: Anthropic's shared max_tokens (2048) truncates larger two-field
+      // responses, and a truncated chunk is lost entirely (JSON.parse throws). Cap is
+      // 100 items → at most 4 chunks. Run two at a time so they don't fully serialize.
+      const CHUNK = 25;
+      const chunks = [];
+      for (let i = 0; i < uncached.length; i += CHUNK) chunks.push(uncached.slice(i, i + CHUNK));
+      const runChunk = async (chunk) => {
+        // classifyBatch sends _key to the model as the id, so results come back keyed
+        // by the same unique composite — no cross-account ambiguity.
+        const results = await classifyBatch(chunk, { provider, model, apiKey });
+        const byKey = new Map(results.map(r => [r.id, r]));
+        for (const it of chunk) {
+          const r = byKey.get(it._key);
+          if (r) {
+            if (r.category) categories[it._key] = r.category;
+            if (r.action)   actions[it._key]   = r.action;
+          }
+          // Cache both labels — or negative-cache a dropped item so it isn't re-sent
+          // every load forever — preserving any legacy category we already resolved.
+          store.setCache(`aiv2:${it._key}`, {
+            c: (r && r.category) || categories[it._key] || null,
+            a: (r && r.action)   || actions[it._key]   || null,
+          });
+        }
+      };
+      // Concurrency 2. allSettled so one truncated/failed chunk doesn't sink the rest;
+      // a thrown chunk simply isn't cached and will be retried next load.
+      for (let i = 0; i < chunks.length; i += 2) {
+        await Promise.allSettled(chunks.slice(i, i + 2).map(runChunk));
       }
     }
-    res.json({ categories });
+    res.json({ categories, actions });
   } catch (e) {
     console.error("Classify-batch error:", e.message);
     res.status(500).json({ error: e.message });

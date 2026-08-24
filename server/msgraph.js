@@ -100,7 +100,11 @@ function mapMsg(m) {
 
 // ── Build Graph path for listing messages ($ MUST be literal, not %24) ────────
 function buildListPath(folder, skip, filter, search) {
-  const sel = "id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,isRead,flag,categories,importance,hasAttachments";
+  // internetMessageHeaders carries List-Unsubscribe / Precedence / Content-Type,
+  // which is how bulk mail and calendar invites are detected. Without it, Outlook
+  // rows never get isBulk, so newsletters wrongly rank as Priority. The raw header
+  // array is dropped from each row before returning (see the mapper) to bound payload size.
+  const sel = "id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,isRead,flag,categories,importance,hasAttachments,internetMessageHeaders";
   // Rules:
   //   • $search and $orderby cannot be combined
   //   • $filter and $orderby together cause "restriction too complex" on Exchange — omit orderby when filtering
@@ -163,6 +167,12 @@ module.exports = {
       convCount[cid] = (convCount[cid] || 0) + 1;
     });
 
+    // Pull a named header out of Graph's internetMessageHeaders array (case-insensitive).
+    const hdrVal = (m, name) => {
+      const h = (m.internetMessageHeaders || []).find(x => (x.name || "").toLowerCase() === name.toLowerCase());
+      return (h && h.value) || "";
+    };
+
     const emails = msgs.map(m => ({
       id: m.id,                               // unique per message (for the list row)
       conversationId: m.conversationId || m.id, // used when loading the full thread
@@ -178,6 +188,10 @@ module.exports = {
       importance: m.importance || "normal",
       categories: m.categories || [],
       hasAttachments: !!m.hasAttachments,
+      // Bulk / calendar signals from internetMessageHeaders — parity with Gmail/IMAP.
+      // The raw header array is NOT included in the returned row (dropped here).
+      isBulk: !!hdrVal(m, "List-Unsubscribe") || /bulk/i.test(hdrVal(m, "Precedence")),
+      hasCalendar: /text\/calendar/i.test(hdrVal(m, "Content-Type")),
     }));
 
     // No paging for search results — $skip is unsupported with $search

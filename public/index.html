@@ -169,10 +169,12 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 /* ── Category tabs ── */
 .cat-tabs{display:flex;gap:0;padding:0 4px;background:var(--p2);border-bottom:1px solid var(--bc);overflow-x:auto;overflow-y:visible;flex-shrink:0;align-items:stretch}
 .cat-tabs::-webkit-scrollbar{height:0}
-.cat-tab{min-height:26px;padding:0 7px;border:none;cursor:pointer;font-family:inherit;font-size:11px;font-weight:500;color:var(--t3);background:transparent;border-bottom:2px solid transparent;white-space:nowrap;transition:color 100ms,border-color 100ms;flex-shrink:0;display:inline-flex;align-items:center;gap:3px;line-height:1}
-.cat-tab:hover{color:var(--t2)}
-.cat-tab.on{color:var(--t1);border-bottom-color:var(--accent);font-weight:600}
-.cat-tab .cat-cnt{display:inline-flex;align-items:center;justify-content:center;min-width:13px;height:13px;padding:0 2px;background:var(--accent);color:oklch(8% 0.003 100);border-radius:99px;font-size:8.5px;font-weight:700;line-height:1;flex-shrink:0}
+.cat-tab,.act-tab{min-height:26px;padding:0 7px;border:none;cursor:pointer;font-family:inherit;font-size:11px;font-weight:500;color:var(--t3);background:transparent;border-bottom:2px solid transparent;white-space:nowrap;transition:color 100ms,border-color 100ms;flex-shrink:0;display:inline-flex;align-items:center;gap:3px;line-height:1}
+.cat-tab:hover,.act-tab:hover{color:var(--t2)}
+.cat-tab.on,.act-tab.on{color:var(--t1);border-bottom-color:var(--accent);font-weight:600}
+.cat-tab .cat-cnt,.act-tab .act-cnt{display:inline-flex;align-items:center;justify-content:center;min-width:13px;height:13px;padding:0 2px;background:var(--accent);color:oklch(8% 0.003 100);border-radius:99px;font-size:8.5px;font-weight:700;line-height:1;flex-shrink:0}
+/* Action row sits just under the topic row — subtle tint so the two read as distinct bands */
+.act-tabs{background:var(--p1)}
 /* category chips - India-aware 9-category system */
 .chip-work{background:oklch(38% 0.16 240/0.13);color:oklch(68% 0.16 240);border:1px solid oklch(38% 0.16 240/0.36)}
 .chip-fin{background:oklch(42% 0.18 148/0.12);color:oklch(62% 0.18 148);border:1px solid oklch(42% 0.18 148/0.36)}
@@ -184,6 +186,14 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .chip-gov{background:oklch(38% 0.14 260/0.12);color:oklch(60% 0.14 260);border:1px solid oklch(38% 0.14 260/0.36)}
 .chip-spam{background:oklch(45% 0.22 15/0.13);color:oklch(62% 0.22 15);border:1px solid oklch(45% 0.22 15/0.42)}
 .chip-cc{background:oklch(68% 0.12 280/0.10);color:oklch(68% 0.12 280);border:1px solid oklch(68% 0.12 280/0.30)}
+/* Action-label chips — own base class (NOT .chip) so the "Show category chips"
+   toggle (which hides every .chip) doesn't also hide these; they have their own toggle. */
+.achip{display:inline-flex;align-items:center;gap:3px;height:14px;padding:0 5px;border-radius:99px;font-size:9px;font-weight:600;line-height:1}
+.achip-need{background:oklch(50% 0.22 22/0.14);color:oklch(66% 0.22 22);border:1px solid oklch(50% 0.22 22/0.42)}
+.achip-sched{background:oklch(38% 0.14 260/0.14);color:oklch(64% 0.14 260);border:1px solid oklch(38% 0.14 260/0.40)}
+.achip-pend{background:oklch(58% 0.20 80/0.12);color:oklch(70% 0.20 80);border:1px solid oklch(58% 0.20 80/0.40)}
+.achip-conv{background:oklch(42% 0.14 300/0.12);color:oklch(66% 0.14 300);border:1px solid oklch(42% 0.14 300/0.38)}
+.achip-read{background:oklch(60% 0.01 100/0.14);color:var(--t3);border:1px solid oklch(60% 0.01 100/0.34)}
 /* quick filters */
 .el-qfilters{display:flex;gap:4px;padding:6px 10px 8px;align-items:center}
 .el-qfilter{height:20px;padding:0 8px;border-radius:99px;border:1px solid var(--bc);cursor:pointer;font-family:inherit;font-size:10.5px;font-weight:500;background:transparent;color:var(--t3);transition:all 100ms}
@@ -816,6 +826,17 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
       <button class="cat-tab" data-cat="shopping"><span>&#x1F4E6;</span><span>Orders</span></button>
       <button class="cat-tab" data-cat="promotional"><span>&#x1F3AF;</span><span>Promos</span></button>
     </div>
+    <!-- Action-label tabs — orthogonal to the topic row above. Class is act-tab
+         (NOT cat-tab) so the single-select cat-tab handler never clears it.
+         Default is All; this dimension has no smart default so it's opt-in. -->
+    <div class="cat-tabs act-tabs" id="act-tabs">
+      <button class="act-tab on" data-act="all"><span>&#x1F5C2;&#xFE0F;</span><span>All</span></button>
+      <button class="act-tab" data-act="needaction"><span>&#x1F534;</span><span>Need action</span></button>
+      <button class="act-tab" data-act="schedule"><span>&#x1F4C5;</span><span>Schedule</span></button>
+      <button class="act-tab" data-act="pending"><span>&#x23F3;</span><span>Pending</span></button>
+      <button class="act-tab" data-act="conversations"><span>&#x1F4AC;</span><span>Chats</span></button>
+      <button class="act-tab" data-act="readonly"><span>&#x1F4C4;</span><span>Read only</span></button>
+    </div>
     <div class="el-scroll" id="email-list">
       <div class="el-loading"><div class="spinner"></div> Loading…</div>
     </div>
@@ -1254,6 +1275,12 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
           <div class="st-info"><div class="st-label">Show category chips</div><div class="st-desc">Display Work / Finance / Orders badges on each email row</div></div>
           <div class="st-control">
             <label class="st-toggle"><input type="checkbox" id="st-chips-toggle"><div class="st-toggle-track"></div><div class="st-toggle-thumb"></div></label>
+          </div>
+        </div>
+        <div class="st-row">
+          <div class="st-info"><div class="st-label">Show action chips</div><div class="st-desc">Display Need action / Schedule / Pending badges on each email row</div></div>
+          <div class="st-control">
+            <label class="st-toggle"><input type="checkbox" id="st-achips-toggle"><div class="st-toggle-track"></div><div class="st-toggle-thumb"></div></label>
           </div>
         </div>
       </div>
@@ -1710,6 +1737,9 @@ let S = {
   filter: 'all',
   qfilter: 'all',
   category: 'all',
+  action: 'all',            // orthogonal action-label filter (Need action / Schedule / …)
+  aiCategories: {},         // {emailId -> topic category} from the AI batch classifier
+  aiActions: {},            // {emailId -> action label} from the same call
   selected: new Set(),
   searchQ: '',
   tone: 'professional',
@@ -1917,6 +1947,16 @@ document.querySelectorAll('.cat-tab').forEach(btn => {
     renderList();
   };
 });
+// Action-label tabs — same single-select behaviour but scoped to .act-tab, so the
+// two rows filter independently (Work + Need action = the intersection).
+document.querySelectorAll('.act-tab').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.act-tab').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+    S.action = btn.dataset.act;
+    renderList();
+  };
+});
 
 // Search
 let searchTimer;
@@ -1995,11 +2035,71 @@ function categorizeRegex(email) {
   return {cat:'work', confident:false};
 }
 
-// S.aiCategories: {emailId -> category} populated by classifyUncertainEmails().
+// AI label maps (S.aiCategories / S.aiActions) are keyed by a COMPOSITE account:id,
+// not the bare message id — IMAP uids collide across accounts, so in all-mail view
+// two accounts can share id "5" and would otherwise show each other's labels. This
+// must match the server's keyOf() exactly.
+function aiKey(e) { return (e._accountId || S.activeAcctId || '-') + ':' + e.id; }
+
 // AI verdicts always win over the regex default since they saw the full picture.
 function categorize(email) {
-  if (email.id && S.aiCategories && S.aiCategories[email.id]) return S.aiCategories[email.id];
+  if (email.id && S.aiCategories && S.aiCategories[aiKey(email)]) return S.aiCategories[aiKey(email)];
   return categorizeRegex(email).cat;
+}
+
+// ── Action labels — a second, orthogonal dimension (what you must DO with an
+// email), independent of the topic category (what it's ABOUT). One label per
+// email, first match wins; null when no rule is confident (→ eligible for AI,
+// renders no chip, matches no action tab). Mirrors categorizeRegex's shape.
+function actionRegex(email) {
+  // Prefer the address of the account this email belongs to (set on All-Mail rows),
+  // falling back to the active account — so "addressed to me" is right cross-account.
+  const self    = email._accountEmail || ((S.accounts || []).find(a => a.active) || {}).email || (S.accounts && S.accounts[0] && S.accounts[0].email) || '';
+  const selfKey = String(self).toLowerCase();
+  const subj    = (email.subject || '').toLowerCase();
+  const snip    = (email.snippet || '').toLowerCase();
+  const text    = subj + ' ' + snip;
+  const sender  = (email.sender || '').toLowerCase();
+  const to       = (email.to || '').toLowerCase();
+  const directToMe = !!selfKey && to.includes(selfKey);
+
+  // 1. Schedule — a time commitment (invite, appointment, deadline). A real calendar
+  // part is definitive; the keyword match is guarded by !isBulk so promo mail with
+  // "sale ends Friday" / "offer expires on" isn't confidently mislabeled a schedule
+  // (which would also exclude it from AI correction).
+  if (email.hasCalendar === true) return { act: 'schedule', confident: true };
+  if (!email.isBulk && (/invitation:|invite:|meeting|calendar|rsvp|reschedul|appointment|interview.*(scheduled|slot)|webinar|save.the.date/i.test(subj)
+    || /due (by|on)|deadline|expires? on|last date|respond by/i.test(text)))
+    return { act: 'schedule', confident: true };
+
+  // 2. Pending — ball is in someone else's court (you replied, or it's in transit)
+  if (email.isSentByMe === true) return { act: 'pending', confident: true };
+  if (/order (placed|confirmed)|shipped|out for delivery|in transit|tracking (number|id)|we (received|have received) your|ticket #|case #|under review|awaiting (approval|confirmation)|will get back to you/i.test(text))
+    return { act: 'pending', confident: true };
+
+  // 3. Need action — you must reply or do something (never for bulk mail)
+  if (directToMe && !email.isBulk && /\?/.test(subj)) return { act: 'needaction', confident: true };
+  if (!email.isBulk && /action required|please (review|confirm|approve|sign|complete|respond|reply|advise)|awaiting your|your (action|response|approval|signature).{0,12}(required|needed)|do the needful|payment due|overdue|verify your|kyc.{0,12}(pending|required)/i.test(text))
+    return { act: 'needaction', confident: true };
+
+  // 4. Conversations — human back-and-forth, no explicit ask
+  if ((email.count || 0) > 1 && !email.isBulk) return { act: 'conversations', confident: true };
+
+  // 5. Read only — nothing to do (bulk, no-reply senders, or a promo/order/spam topic)
+  if (email.isBulk === true) return { act: 'readonly', confident: true };
+  if (/^(no-?reply|donotreply|notifications?|alerts?|newsletter|digest|updates?)@/i.test(sender.replace(/^[^<]*</, '')))
+    return { act: 'readonly', confident: true };
+  try { if (['promotional', 'shopping', 'spam'].includes(categorize(email))) return { act: 'readonly', confident: true }; } catch {}
+
+  // 6. Uncertain → let the AI decide
+  return { act: null, confident: false };
+}
+
+// S.aiActions: {emailId -> action} from classifyUncertainEmails(); AI wins over
+// the regex fallthrough. Returns null when nothing is known (renders no chip).
+function actionLabel(email) {
+  if (email.id && S.aiActions && S.aiActions[aiKey(email)]) return S.aiActions[aiKey(email)];
+  return actionRegex(email).act;
 }
 
 // Fetch AI categories for the regex-uncertain subset of a freshly loaded email
@@ -2007,27 +2107,55 @@ function categorize(email) {
 // email is only ever sent to the AI once. Fire-and-forget — re-renders the
 // list when results land so the UI never blocks on this.
 let _classifyInFlight = false;
+let _classifyQueued = false;
 async function classifyUncertainEmails(emails) {
-  if (_classifyInFlight) return;
+  // Single in-flight call. If a second load lands mid-flight (account switch,
+  // all-mail race), remember to re-run afterwards against current state rather
+  // than dropping that page's classification permanently.
+  if (_classifyInFlight) { _classifyQueued = true; return; }
   S.aiCategories = S.aiCategories || {};
+  S.aiActions    = S.aiActions    || {};
+  // An email is worth sending if EITHER dimension is still unknown and the local
+  // regex isn't confident about it.
+  const self = ((S.accounts || []).find(a => a.active) || {}).email
+            || (S.accounts && S.accounts[0] && S.accounts[0].email) || '';
+  const selfKey = String(self).toLowerCase();
   const items = emails.filter(e => {
-    if (!e.id || S.aiCategories[e.id]) return false;
-    try { return !categorizeRegex(e).confident; } catch { return false; }
-  }).map(e => ({ id: e.id, sender: e.sender, subject: e.subject, snippet: e.snippet }));
+    if (!e.id) return false;
+    const k = aiKey(e);
+    const haveCat = !!S.aiCategories[k], haveAct = !!S.aiActions[k];
+    if (haveCat && haveAct) return false;
+    try {
+      const catUncertain = !haveCat && !categorizeRegex(e).confident;
+      const actUncertain = !haveAct && !actionRegex(e).confident;
+      return catUncertain || actUncertain;
+    } catch { return false; }
+  }).map(e => ({
+    id: e.id, sender: e.sender, subject: e.subject, snippet: e.snippet,
+    acct: e._accountId || S.activeAcctId || '-',
+    // Boolean hints the server passes to the model as ground truth.
+    bulk: !!e.isBulk,
+    direct: (() => { const k = (e._accountEmail || self || '').toLowerCase(); return !!(k && (e.to || '').toLowerCase().includes(k)); })(),
+    sent: !!e.isSentByMe,
+    cal: !!e.hasCalendar,
+    n: e.count || 0,
+  }));
   if (!items.length) return;
 
   _classifyInFlight = true;
   try {
     const data = await postJSON('/api/classify-batch', { items });
-    if (data && data.categories) {
-      Object.assign(S.aiCategories, data.categories);
+    if (data && (data.categories || data.actions)) {
+      if (data.categories) Object.assign(S.aiCategories, data.categories);
+      if (data.actions)    Object.assign(S.aiActions,    data.actions);
       try { renderList(); } catch {}
     }
   } catch (e) {
-    // Best-effort — the regex default ('work') already covers these emails.
+    // Best-effort — the regex labels already cover these emails.
     console.warn('AI batch classify failed:', e.message);
   } finally {
     _classifyInFlight = false;
+    if (_classifyQueued) { _classifyQueued = false; setTimeout(() => classifyUncertainEmails(S.emails), 0); }
   }
 }
 
@@ -2084,6 +2212,25 @@ function updateCatCounts(emails) {
       if (priorityUnread > 0) tab.insertAdjacentHTML('beforeend', `<span class="cat-cnt">${priorityUnread}</span>`);
     } else if (cat !== 'all' && counts[cat] > 0) {
       tab.insertAdjacentHTML('beforeend', `<span class="cat-cnt">${counts[cat]}</span>`);
+    }
+  });
+}
+
+// Unread counts per action label. Separate fn + separate .act-cnt class so it can
+// never strip the topic row's badges (both iterate their own tab set only).
+function updateActCounts(emails) {
+  const counts = {needaction:0, schedule:0, pending:0, conversations:0, readonly:0};
+  emails.forEach(e => {
+    if (!e.unread) return;
+    let act; try { act = actionLabel(e); } catch { act = null; }
+    if (act && counts[act] !== undefined) counts[act]++;
+  });
+  document.querySelectorAll('.act-tab').forEach(tab => {
+    const act = tab.dataset.act;
+    const existing = tab.querySelector('.act-cnt');
+    if (existing) existing.remove();
+    if (act !== 'all' && counts[act] > 0) {
+      tab.insertAdjacentHTML('beforeend', `<span class="act-cnt">${counts[act]}</span>`);
     }
   });
 }
@@ -2194,6 +2341,23 @@ function getCatChip(email) {
   } catch(e) { return ''; }
 }
 
+// Action-label chip (the second dimension). Text label, not emoji — the action is
+// worth reading at a glance. Returns '' for null so unlabeled rows stay clean.
+function getActChip(email) {
+  try {
+    var act = actionLabel(email);
+    var map = {
+      needaction:    ['achip-need',  'Action'],
+      schedule:      ['achip-sched', 'Schedule'],
+      pending:       ['achip-pend',  'Pending'],
+      conversations: ['achip-conv',  'Chat'],
+      readonly:      ['achip-read',  'Read'],
+    };
+    var pair = map[act];
+    return pair ? '<span class="achip ' + pair[0] + '" title="' + act + '">' + pair[1] + '</span>' : '';
+  } catch(e) { return ''; }
+}
+
 // ── Render list ────────────────────────────────────────────────────────────────
 function renderList() {
   const el = $('email-list');
@@ -2204,10 +2368,10 @@ function renderList() {
   if (S.searchQ) {
     visible = allEmails;
   } else if (S.category === 'priority') {
+    // Priority is a FILTER, not a re-sort: show only the mail that matters
+    // (known sender / important / unread), but keep it in date order like every
+    // other view — the byDate sort below handles ordering.
     visible = allEmails.filter(e => { try { return isPriority(e); } catch { return true; } });
-    // Rank by score (relationship + signals + recency) instead of just list order,
-    // so the emails that matter most float to the top — not just the newest.
-    try { visible.sort((a, b) => priorityScore(b) - priorityScore(a)); } catch {}
     // Some mailboxes (e.g. an all-read Outlook/Zoho inbox) have no unread/important
     // mail, so Priority would be blank and look broken. Fall back to showing all mail
     // with a note instead of a confusing empty tab.
@@ -2218,12 +2382,28 @@ function renderList() {
     visible = allEmails.filter(e => { try { return categorize(e) === S.category; } catch(err) { return false; } });
   }
 
+  // Second, orthogonal filter — AND'ed with the topic filter so "Work + Need action"
+  // shows the intersection. Skipped while searching, like the topic filter.
+  if (!S.searchQ && S.action && S.action !== 'all') {
+    visible = visible.filter(e => { try { return actionLabel(e) === S.action; } catch { return false; } });
+  }
+
+  // Always show newest-first by date (server order is already _sortTs desc, but
+  // Priority used to re-rank by score — this guarantees every view is chronological).
+  if (!S.searchQ) {
+    const byDate = (a, b) => (b._sortTs || Date.parse(b.date) || 0) - (a._sortTs || Date.parse(a.date) || 0);
+    try { visible = [...visible].sort(byDate); } catch {}
+  }
+
   // Refresh tab counts
   try { updateCatCounts(allEmails); } catch(e) {}
+  try { updateActCounts(allEmails); } catch(e) {}
 
   if (!visible.length) {
+    const actName = { needaction:'Need action', schedule:'Schedule', pending:'Pending', conversations:'Chats', readonly:'Read only' }[S.action];
+    const filterNote = actName ? (' — no ' + actName + ' mail here') : '';
     el.innerHTML = allEmails.length
-      ? '<div class="el-empty">No messages in this category</div>'
+      ? '<div class="el-empty">No messages in this view' + filterNote + '</div>'
       : '<div class="el-empty">✉ No messages</div>';
     $('el-cnt').classList.add('hidden');
     return;
@@ -2241,6 +2421,7 @@ function renderList() {
       const level = email._ai?.level || '';
       const priCls = level === 'high' ? ' pri-hi' : level === 'medium' ? ' pri-md' : '';
       const catChip = getCatChip(email);
+      const actChip = getActChip(email);
       const priChip = level
         ? '<span class="chip chip-' + (level==='high'?'hi':level==='medium'?'md':'lo') + '">' + level.toUpperCase() + '</span>'
         : '';
@@ -2278,7 +2459,7 @@ function renderList() {
           + '</div>'
           + '<div class="er-subj">' + esc(email.subject) + '</div>'
           + '<div class="er-prev">' + esc(email.snippet) + '</div>'
-          + '<div class="er-meta">' + catChip + priChip + starEl + attEl + cntEl + ccEl + acctBadge + '</div>'
+          + '<div class="er-meta">' + catChip + actChip + priChip + starEl + attEl + cntEl + ccEl + acctBadge + '</div>'
         + '</div>'
         + actBtns
         + '</div>';
@@ -2332,6 +2513,7 @@ function updateDigest() {
   if (draftCnt)  draftCnt.textContent  = isDrafts  ? (S.emails.length  || '') : '';
   if (spamCnt)   spamCnt.textContent   = isSpam    ? (S.emails.length  || '') : '';
   updateCatCounts(S.emails);
+  try { updateActCounts(S.emails); } catch {}
 }
 
 // ── Select email ───────────────────────────────────────────────────────────────
@@ -4201,6 +4383,10 @@ $('compose-btn').onclick = () => openCompose();
     document.documentElement.dataset.chips = v ? 'on' : 'off';
     lsSet('mm-chips', v ? '1' : '0');
   }
+  function applyAChips(v) {
+    document.documentElement.dataset.achips = v ? 'on' : 'off';
+    lsSet('mm-achips', v ? '1' : '0');
+  }
   function applyPriority(v) {
     document.documentElement.dataset.priority = v ? 'on' : 'off';
     lsSet('mm-priority', v ? '1' : '0');
@@ -4210,6 +4396,7 @@ $('compose-btn').onclick = () => openCompose();
   applyDensity(ls('mm-density', 'normal'));
   applyFontSize(ls('mm-fontsize', '13'));
   applyChips(ls('mm-chips', '1') !== '0');
+  applyAChips(ls('mm-achips', '1') !== '0');
   applyPriority(ls('mm-priority', '1') !== '0');
 
   // Hide chips via CSS when off
@@ -4219,13 +4406,21 @@ $('compose-btn').onclick = () => openCompose();
     chipStyle.textContent = ls('mm-chips','1') === '0'
       ? '.chip{display:none!important}' : '';
   }
+  // Action chips have their own toggle + style element — independent of .chip,
+  // so turning off category chips never hides action chips and vice-versa.
+  const aChipStyle = document.createElement('style');
+  document.head.appendChild(aChipStyle);
+  function refreshAChipStyle() {
+    aChipStyle.textContent = ls('mm-achips','1') === '0'
+      ? '.achip{display:none!important}' : '';
+  }
   const prStyle = document.createElement('style');
   document.head.appendChild(prStyle);
   function refreshPriorityStyle() {
     prStyle.textContent = ls('mm-priority','1') === '0'
       ? '.er.pri-hi,.er.pri-md{border-left-color:transparent!important}' : '';
   }
-  refreshChipStyle(); refreshPriorityStyle();
+  refreshChipStyle(); refreshAChipStyle(); refreshPriorityStyle();
 
   // Poll interval management
   let _pollTimer = null;
@@ -4243,7 +4438,7 @@ $('compose-btn').onclick = () => openCompose();
   // ── Settings snapshot (Save / Discard) ───────────────────────────────────────
   const _ST_KEYS = [
     'mm-theme','mm-density','mm-fontsize','mm-replymode','mm-default-tone',
-    'mm-chips','mm-sound','mm-notif-enabled','mm-sendconfirm','mm-ai-auto','mm-priority','mm-poll-interval',
+    'mm-chips','mm-achips','mm-sound','mm-notif-enabled','mm-sendconfirm','mm-ai-auto','mm-priority','mm-poll-interval',
     'mm-ai-provider','mm-ai-model',
     ...['groq','openai','anthropic','gemini','mistral'].flatMap(p =>
       ['mm-ai-model-'+p,'mm-ai-key-'+p,'mm-ai-keyset-'+p]
@@ -4268,6 +4463,7 @@ $('compose-btn').onclick = () => openCompose();
     setSeg('st-tone-seg',     ls('mm-default-tone', 'professional'));
 
     document.getElementById('st-chips-toggle').checked    = ls('mm-chips', '1') !== '0';
+    document.getElementById('st-achips-toggle').checked   = ls('mm-achips', '1') !== '0';
     document.getElementById('st-notif-toggle').checked    = Notification?.permission === 'granted' && ls('mm-notif-enabled', '1') !== '0';
     document.getElementById('st-sound-toggle').checked    = ls('mm-sound', '0') === '1';
     document.getElementById('st-sendconfirm-toggle').checked = ls('mm-sendconfirm','0') === '1';
@@ -4331,6 +4527,7 @@ $('compose-btn').onclick = () => openCompose();
       applyDensity(ls('mm-density', 'normal'));
       applyFontSize(parseInt(ls('mm-fontsize', '13')));
       applyChips(ls('mm-chips', '1') !== '0'); refreshChipStyle();
+      applyAChips(ls('mm-achips', '1') !== '0'); refreshAChipStyle();
       const tone = ls('mm-default-tone', 'professional');
       S.tone = tone;
       document.querySelectorAll('.rb-tone').forEach(b => b.classList.toggle('on', b.dataset.tone === tone));
@@ -4368,6 +4565,9 @@ $('compose-btn').onclick = () => openCompose();
   // Category chips
   document.getElementById('st-chips-toggle').onchange = function() {
     applyChips(this.checked); refreshChipStyle();
+  };
+  document.getElementById('st-achips-toggle').onchange = function() {
+    applyAChips(this.checked); refreshAChipStyle();
   };
 
   // Notifications — this toggle is the ONLY place the persisted notifications
@@ -4875,7 +5075,7 @@ $('compose-btn').onclick = () => openCompose();
     aiProviders.forEach(p => {
       aiKeys.push('mm-ai-model-'+p, 'mm-ai-key-'+p, 'mm-ai-keyset-'+p);
     });
-    ['mm-theme','mm-density','mm-fontsize','mm-chips','mm-sound','mm-poll-interval',
+    ['mm-theme','mm-density','mm-fontsize','mm-chips','mm-achips','mm-sound','mm-poll-interval',
      'mm-replymode','mm-default-tone','mm-sendconfirm','mm-ai-auto','mm-priority',
      'mm-groq-key','mm-signature','mm-signatures','mm-acct-accents','mm-panels','mm-rb-height', ...aiKeys].forEach(k => lsDel(k));
     applyTheme('light');
@@ -4883,6 +5083,7 @@ $('compose-btn').onclick = () => openCompose();
     applyDensity('normal');
     applyFontSize(13);
     applyChips(true); refreshChipStyle();
+    applyAChips(true); refreshAChipStyle();
     applyPriority(true); refreshPriorityStyle();
     // Also reset the Electron-side sync settings (background sync, tone, AND
     // launch-on-startup) — otherwise "Reset everything" silently leaves the app
