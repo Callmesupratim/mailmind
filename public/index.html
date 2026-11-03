@@ -4714,13 +4714,9 @@ $('compose-btn').onclick = () => openCompose();
       name: 'Groq', keyPlaceholder: 'gsk_…', keyLink: 'https://console.groq.com/keys', keyLinkText: 'Get free key ↗',
       keyDesc: 'Free tier — no credit card needed',
       models: [
-        {v:'llama-3.3-70b-versatile',         l:'LLaMA 3.3 70B Versatile'},
-        {v:'llama-3.1-70b-versatile',         l:'LLaMA 3.1 70B Versatile'},
-        {v:'llama-4-maverick-17b-128e-instruct', l:'LLaMA 4 Maverick 17B'},
-        {v:'llama-4-scout-17b-16e-instruct',  l:'LLaMA 4 Scout 17B'},
-        {v:'llama-3.1-8b-instant',            l:'LLaMA 3.1 8B Instant'},
-        {v:'mixtral-8x7b-32768',              l:'Mixtral 8x7B'},
-        {v:'gemma2-9b-it',                    l:'Gemma 2 9B'},
+        {v:'openai/gpt-oss-120b',             l:'GPT-OSS 120B (recommended)'},
+        {v:'openai/gpt-oss-20b',              l:'GPT-OSS 20B (fastest)'},
+        {v:'qwen/qwen3.8-27b',                l:'Qwen 3.8 27B (preview)'},
         {v:'custom',                          l:'Custom model ID…'},
       ],
     },
@@ -4728,14 +4724,10 @@ $('compose-btn').onclick = () => openCompose();
       name: 'OpenAI', keyPlaceholder: 'sk-…', keyLink: 'https://platform.openai.com/api-keys', keyLinkText: 'Get API key ↗',
       keyDesc: 'Pay per use — billing required',
       models: [
-        {v:'gpt-4.1',       l:'GPT-4.1'},
-        {v:'gpt-4.1-mini',  l:'GPT-4.1 Mini'},
-        {v:'gpt-4o',        l:'GPT-4o'},
-        {v:'gpt-4o-mini',   l:'GPT-4o Mini'},
-        {v:'o4-mini',       l:'o4 Mini (reasoning)'},
-        {v:'o3',            l:'o3 (reasoning)'},
-        {v:'o1',            l:'o1 (reasoning)'},
-        {v:'gpt-3.5-turbo', l:'GPT-3.5 Turbo'},
+        {v:'gpt-6-luna',    l:'GPT-6 Luna (fast, low cost)'},
+        {v:'gpt-6.1-terra', l:'GPT-6.1 Terra'},
+        {v:'gpt-6.1-sol',   l:'GPT-6.1 Sol'},
+        {v:'gpt-6-astra',   l:'GPT-6 Astra (most capable)'},
         {v:'custom',        l:'Custom model ID…'},
       ],
     },
@@ -4743,12 +4735,10 @@ $('compose-btn').onclick = () => openCompose();
       name: 'Anthropic', keyPlaceholder: 'sk-ant-…', keyLink: 'https://console.anthropic.com/settings/keys', keyLinkText: 'Get API key ↗',
       keyDesc: 'Pay per use — billing required',
       models: [
-        {v:'claude-opus-4-5',            l:'Claude Opus 4.5'},
-        {v:'claude-sonnet-4-5',          l:'Claude Sonnet 4.5'},
-        {v:'claude-3-5-sonnet-20241022', l:'Claude 3.5 Sonnet'},
-        {v:'claude-3-5-haiku-20241022',  l:'Claude 3.5 Haiku'},
-        {v:'claude-3-opus-20240229',     l:'Claude 3 Opus'},
-        {v:'claude-3-haiku-20240307',    l:'Claude 3 Haiku'},
+        {v:'claude-opus-5-5',            l:'Claude Opus 5.5'},
+        {v:'claude-sonnet-5-5',          l:'Claude Sonnet 5.5'},
+        {v:'claude-haiku-5-5',           l:'Claude Haiku 5.5 (fast, low cost)'},
+        {v:'claude-fable-5-1',           l:'Claude Fable 5.1 (most capable)'},
         {v:'custom',                     l:'Custom model ID…'},
       ],
     },
@@ -4756,12 +4746,12 @@ $('compose-btn').onclick = () => openCompose();
       name: 'Google Gemini', keyPlaceholder: 'AIza…', keyLink: 'https://aistudio.google.com/app/apikey', keyLinkText: 'Get free key ↗',
       keyDesc: 'Free tier via Google AI Studio',
       models: [
-        {v:'gemini-2.5-pro',        l:'Gemini 2.5 Pro'},
-        {v:'gemini-2.5-flash',      l:'Gemini 2.5 Flash'},
-        {v:'gemini-2.5-flash-lite', l:'Gemini 2.5 Flash-Lite'},
-        {v:'gemini-1.5-pro',        l:'Gemini 1.5 Pro'},
-        {v:'gemini-1.5-flash',      l:'Gemini 1.5 Flash'},
-        {v:'custom',                l:'Custom model ID…'},
+        {v:'gemini-3.6-flash',       l:'Gemini 3.6 Flash'},
+        {v:'gemini-3.8-flash',       l:'Gemini 3.8 Flash (newest)'},
+        {v:'gemini-3.5-flash-lite',  l:'Gemini 3.5 Flash-Lite (fast, low cost)'},
+        {v:'gemini-4-argon',         l:'Gemini 4 Argon (most capable, paid)'},
+        {v:'gemini-3.1-pro-preview', l:'Gemini 3.1 Pro (preview, paid)'},
+        {v:'custom',                 l:'Custom model ID…'},
       ],
     },
     mistral: {
@@ -4771,8 +4761,6 @@ $('compose-btn').onclick = () => openCompose();
         {v:'mistral-large-latest',  l:'Mistral Large'},
         {v:'mistral-medium-latest', l:'Mistral Medium'},
         {v:'mistral-small-latest',  l:'Mistral Small'},
-        {v:'open-mixtral-8x7b',     l:'Mixtral 8x7B'},
-        {v:'open-mistral-7b',       l:'Mistral 7B'},
         {v:'custom',                l:'Custom model ID…'},
       ],
     },
@@ -4780,44 +4768,31 @@ $('compose-btn').onclick = () => openCompose();
 
   // Pricing per 1M tokens (input / output), as of mid-2026
   const MODEL_PRICING = {
-    // Groq (all free tier)
-    'llama-3.3-70b-versatile':            { in: 0.59,  out: 0.79,  free: true },
-    'llama-3.1-70b-versatile':            { in: 0.59,  out: 0.79,  free: true },
-    'llama-4-maverick-17b-128e-instruct': { in: 0.50,  out: 0.77,  free: true },
-    'llama-4-scout-17b-16e-instruct':     { in: 0.11,  out: 0.34,  free: true },
-    'llama-3.1-8b-instant':               { in: 0.05,  out: 0.08,  free: true },
-    'mixtral-8x7b-32768':                 { in: 0.24,  out: 0.24,  free: true },
-    'gemma2-9b-it':                       { in: 0.20,  out: 0.20,  free: true },
+    // Groq (free tier)
+    'openai/gpt-oss-120b':      { in: 0.15,  out: 0.60,  free: true },
+    'openai/gpt-oss-20b':       { in: 0.075, out: 0.30,  free: true },
+    'qwen/qwen3.8-27b':         { in: 0.80,  out: 4.00,  free: true },
     // OpenAI
-    'gpt-4.1':                  { in: 2.00,  out: 8.00  },
-    'gpt-4.1-mini':             { in: 0.40,  out: 1.60  },
-    'gpt-4o':                   { in: 2.50,  out: 10.00 },
-    'gpt-4o-mini':              { in: 0.15,  out: 0.60  },
-    'o4-mini':                  { in: 1.10,  out: 4.40  },
-    'o3':                       { in: 10.00, out: 40.00 },
-    'o1':                       { in: 15.00, out: 60.00 },
-    'o1-mini':                  { in: 3.00,  out: 12.00 },
-    'gpt-4-turbo':              { in: 10.00, out: 30.00 },
-    'gpt-3.5-turbo':            { in: 0.50,  out: 1.50  },
+    'gpt-6-astra':              { in: 10.00, out: 50.00 },
+    'gpt-6.1-sol':              { in: 2.00,  out: 10.00 },
+    'gpt-6.1-terra':            { in: 1.00,  out: 5.00  },
+    'gpt-6-luna':               { in: 0.10,  out: 0.50  },
     // Anthropic
-    'claude-opus-4-5':            { in: 15.00, out: 75.00 },
-    'claude-sonnet-4-5':          { in: 3.00,  out: 15.00 },
-    'claude-3-5-sonnet-20241022': { in: 3.00,  out: 15.00 },
-    'claude-3-5-haiku-20241022':  { in: 0.80,  out: 4.00  },
-    'claude-3-opus-20240229':     { in: 15.00, out: 75.00 },
-    'claude-3-haiku-20240307':    { in: 0.25,  out: 1.25  },
-    // Gemini (free tier available)
-    'gemini-2.5-pro':       { in: 1.25,  out: 10.00, free: true },
-    'gemini-2.5-flash':     { in: 0.30,  out: 2.50,  free: true },
-    'gemini-2.5-flash-lite':{ in: 0.10,  out: 0.40,  free: true },
-    'gemini-1.5-pro':       { in: 1.25,  out: 5.00,  free: true },
-    'gemini-1.5-flash':     { in: 0.075, out: 0.30,  free: true },
+    'claude-fable-5-1':         { in: 10.00, out: 50.00 },
+    'claude-opus-5-5':          { in: 4.00,  out: 20.00 },
+    'claude-sonnet-5-5':        { in: 2.00,  out: 10.00 },
+    'claude-haiku-5-5':         { in: 0.10,  out: 0.50  },
+    // Gemini (free tier on Flash models). Scheduled rises: 4 Argon doubles 1 Dec 2026,
+    // 3.6/3.8 Flash double 1 Jan 2027.
+    'gemini-3.6-flash':         { in: 0.75,  out: 3.75,  free: true },
+    'gemini-3.8-flash':         { in: 0.75,  out: 3.75,  free: true },
+    'gemini-3.5-flash-lite':    { in: 0.30,  out: 2.50,  free: true },
+    'gemini-4-argon':           { in: 2.00,  out: 10.00 },
+    'gemini-3.1-pro-preview':   { in: 2.00,  out: 12.00 },
     // Mistral
-    'mistral-large-latest': { in: 2.00,  out: 6.00  },
-    'mistral-medium-latest':{ in: 0.40,  out: 2.00  },
-    'mistral-small-latest': { in: 0.10,  out: 0.30  },
-    'open-mixtral-8x7b':    { in: 0.70,  out: 0.70  },
-    'open-mistral-7b':      { in: 0.25,  out: 0.25  },
+    'mistral-large-latest':     { in: 0.50,  out: 1.50  },
+    'mistral-medium-latest':    { in: 0.40,  out: 2.00  },
+    'mistral-small-latest':     { in: 0.10,  out: 0.30  },
   };
 
   function showModelCost(modelId) {
@@ -4862,14 +4837,14 @@ $('compose-btn').onclick = () => openCompose();
   function modelTier(id) {
     const s = id.toLowerCase();
     // Fast / lightweight tier
-    if (/haiku|mini(?!stral-large)|lite|flash-lite|instant|-8b|-7b|-6b|-4b|small|nano|scout-17b/.test(s)) return 'fast';
+    if (/haiku|mini(?!stral-large)|lite|flash-lite|instant|luna|-20b|-8b|-7b|-6b|-4b|small|nano|scout-17b/.test(s)) return 'fast';
     // Most capable / flagship tier
-    if (/opus|ultra|max(?!-token)|-70b|-72b|-90b|-405b|large(?!-latest.*small)|maverick|-pro$|-2\.5-pro|gpt-4o(?!-mini)|gpt-4\.1(?!-mini)|^o1$|^o3$|^o4$|sonnet/.test(s)) return 'capable';
+    if (/opus|fable|astra|argon|ultra|max(?!-token)|-70b|-72b|-90b|-120b|-405b|large(?!-latest.*small)|maverick|-pro$|-pro-|-2\.5-pro|gpt-4o(?!-mini)|gpt-4\.1(?!-mini)|^o1$|^o3$|^o4$|sonnet/.test(s)) return 'capable';
     return 'balanced';
   }
 
   function modelLabel(id) {
-    const reasoning = /^o\d/i.test(id);
+    const reasoning = /^(o\d|gpt-[5-9])|gpt-oss/i.test(id);
     const tag = reasoning ? ' ✦ Reasoning' : '';
     return id + tag;
   }
@@ -5156,10 +5131,14 @@ $('compose-btn').onclick = () => openCompose();
   (function() {
     const prov  = ls('mm-ai-provider', 'groq');
     // Provider-aware default so the badge never shows a Groq model under Gemini etc.
-    const provDefault = ((AI_PROVIDERS[prov]||{}).models||[]).find(x => x.v !== 'custom')?.v || 'llama-3.3-70b-versatile';
+    const provDefault = ((AI_PROVIDERS[prov]||{}).models||[]).find(x => x.v !== 'custom')?.v || 'openai/gpt-oss-120b';
     let model = ls('mm-ai-model-' + prov, '') || provDefault;
     // Heal stale storage: if saved model belongs to another provider, reset it
     if (prov === 'gemini' && !/^gemini/i.test(model)) { model = provDefault; lsSet('mm-ai-model-gemini', model); }
+    // …or if the provider has shut it down (mirrors RETIRED_MODEL in server/index.js)
+    if (/^(llama-3\.[13]-|llama-4-|meta-llama\/llama-4-|mixtral-8x7b-32768$|gemma2-9b-it$|o1(-mini)?$|o4-mini$|gpt-3\.5-turbo|gpt-4-turbo|claude-3-|gemini-1\.5-|gemini-2\.0-|open-mistral-7b$|open-mixtral-)/i.test(model)) {
+      model = provDefault; lsSet('mm-ai-model-' + prov, model);
+    }
     const badge = document.getElementById('aip-model-badge');
     if (badge) {
       const pName = (AI_PROVIDERS[prov]||{}).name || prov;

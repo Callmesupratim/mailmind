@@ -29,10 +29,14 @@ app.on('second-instance', (_e, argv) => {
 });
 
 // ── Wait for port with timeout ──────────────────────────────────────────────────
-function waitForPort(port, timeoutMs = 20000) {
+// If `proc` (the server we spawned) exits first — e.g. EADDRINUSE because another
+// program grabbed the port after we checked it — reject at once instead of waiting
+// out the full timeout, so the caller can retry on the next port.
+function waitForPort(port, timeoutMs = 20000, proc = null) {
   return new Promise((resolve, reject) => {
     const deadline = Date.now() + timeoutMs;
     const check = () => {
+      if (proc && proc.exitCode !== null) { reject(new Error('server exited (code ' + proc.exitCode + ')')); return; }
       if (Date.now() > deadline) { reject(new Error('timeout')); return; }
       const c = net.createConnection(port, '127.0.0.1');
       c.once('connect', () => { c.destroy(); resolve(); });
@@ -42,21 +46,51 @@ function waitForPort(port, timeoutMs = 20000) {
   });
 }
 
-// ── Stale server detection ──────────────────────────────────────────────────────
-// After a crash or auto-update, an orphaned server from a previous run can still
-// hold port 3000. If its version matches ours, reuse it; otherwise kill it so a
-// fresh server of the current version can bind.
-function isPortBusy(port) {
+// ── Port selection ──────────────────────────────────────────────────────────────
+// 3000 first, then a few fixed fallbacks. Fixed (not random) so the OAuth redirect URIs
+// for these ports can be registered once in the Google/Microsoft consoles; a random
+// OS-assigned port is the last resort so the app at least opens for IMAP mailboxes.
+const PREFERRED_PORTS = [3000, 3001, 3002, 3003, 3004];
+
+// True only if WE can bind it — a connect test alone misses a program holding the
+// port on another interface (e.g. IPv6-only), which still makes our bind fail.
+function canBind(port) {
   return new Promise(resolve => {
-    const c = net.createConnection(port, '127.0.0.1');
-    c.once('connect', () => { c.destroy(); resolve(true); });
-    c.once('error',   () => resolve(false));
+    const srv = net.createServer();
+    srv.once('error', () => resolve(false));
+    srv.once('listening', () => srv.close(() => resolve(true)));
+    srv.listen(port, '127.0.0.1');
   });
 }
 
+// The renderer's localStorage (signatures, themes, prefs) is per-origin, and the origin
+// includes the port — so once we've moved off 3000, keep using the same port on later
+// launches instead of flip-flopping back and "losing" those settings.
+function loadLastPort(uDir) {
+  try { const p = JSON.parse(fs.readFileSync(path.join(uDir, 'server-port.json'), 'utf8')).port; return Number.isInteger(p) ? p : null; }
+  catch { return null; }
+}
+function saveLastPort(uDir, port) {
+  try { fs.writeFileSync(path.join(uDir, 'server-port.json'), JSON.stringify({ port })); } catch {}
+}
+
+function getOsFreePort() {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.once('error', reject);
+    srv.listen(0, '127.0.0.1', () => { const p = srv.address().port; srv.close(() => resolve(p)); });
+  });
+}
+
+// ── Stale server detection ──────────────────────────────────────────────────────
+// After a crash or auto-update, an orphaned server from a previous run can still
+// hold our port. If its version matches ours, reuse it; otherwise kill it so a
+// fresh server of the current version can bind. null = not a Mailmind server.
 function getExistingServerVersion(port) {
   return new Promise(resolve => {
-    const req = require('http').get({ host: '127.0.0.1', port, path: '/api/version', timeout: 3000 }, res => {
+    // agent:false — a one-shot probe must open a fresh connection, never reuse a pooled
+    // keep-alive socket that may belong to a server that has since gone away.
+    const req = require('http').get({ host: '127.0.0.1', port, path: '/api/version', timeout: 3000, agent: false }, res => {
       let d = '';
       res.on('data', c => d += c);
       res.on('end', () => { try { resolve(JSON.parse(d).version || null); } catch { resolve(null); } });
@@ -447,38 +481,50 @@ app.whenReady().then(async () => {
 
   const serverScript = path.join(appDir, 'server', 'index.js');
 
-  // Handle an existing listener on port 3000: reuse if it's our own version
-  // (e.g. NSSM service or a same-version orphan), kill it if it's a stale orphan
-  // from a crash or pre-update run.
-  let needSpawn = true;
-  if (await isPortBusy(3000)) {
-    const v = await getExistingServerVersion(3000);
-    if (v === app.getVersion()) {
-      log('reusing existing server v' + v + ' on port 3000');
-      needSpawn = false;
-    } else {
-      log('stale server (v' + v + ') on port 3000 — killing it');
-      await killStaleServer(3000);
-      await new Promise(r => setTimeout(r, 800));
-    }
-  }
-
-  if (needSpawn) {
-    log('spawning: ' + nodeBin + ' ' + serverScript);
-    serverProcess = spawn(nodeBin, [serverScript], {
+  function spawnServer(port) {
+    log('spawning on port ' + port + ': ' + nodeBin + ' ' + serverScript);
+    const proc = spawn(nodeBin, [serverScript], {
       env: {
         ...process.env,
+        PORT: String(port),
         DB_PATH: dbPath,
         MAILMIND_SECRET: machineSecret,
         SESSION_SECRET: machineSecret,
       },
       cwd: appDir,
     });
-
-    serverProcess.stdout?.on('data', d => log('srv: '     + d.toString().trim()));
-    serverProcess.stderr?.on('data', d => log('srv ERR: ' + d.toString().trim()));
-    serverProcess.on('exit', code => log('server exited: ' + code));
+    proc.stdout?.on('data', d => log('srv: '     + d.toString().trim()));
+    proc.stderr?.on('data', d => log('srv ERR: ' + d.toString().trim()));
+    proc.on('exit', code => log('server exited: ' + code));
+    return proc;
   }
+
+  // Pick the port. For each candidate: free → use it; our own version already serving
+  // (NSSM service or a same-version orphan) → reuse it; a stale Mailmind orphan from a
+  // crash or pre-update run → kill it and take the port; anything else is another
+  // program's → leave it alone and move on to the next candidate.
+  const lastPort   = loadLastPort(userData);
+  const candidates = [...new Set([lastPort, ...PREFERRED_PORTS].filter(Boolean))];
+  let serverPort = null;
+  let needSpawn  = true;
+  for (const port of candidates) {
+    if (await canBind(port)) { serverPort = port; break; }
+    const v = await getExistingServerVersion(port);
+    if (v === app.getVersion()) {
+      log('reusing existing server v' + v + ' on port ' + port);
+      serverPort = port; needSpawn = false; break;
+    }
+    if (v) {
+      log('stale server (v' + v + ') on port ' + port + ' — killing it');
+      await killStaleServer(port);
+      await new Promise(r => setTimeout(r, 800));
+      if (await canBind(port)) { serverPort = port; break; }
+    }
+    log('port ' + port + ' is in use by another program — trying the next one');
+  }
+  if (!serverPort) serverPort = await getOsFreePort();
+
+  if (needSpawn) serverProcess = spawnServer(serverPort);
 
   // ── Window ────────────────────────────────────────────────────────────────────
   // Window/taskbar icon — first non-empty candidate wins
@@ -568,15 +614,27 @@ app.whenReady().then(async () => {
 
   // ── Wait for server, then navigate ───────────────────────────────────────────
   try {
-    await waitForPort(3000, 20000);
-    win.loadURL('http://localhost:3000');
-    log('navigated to app');
+    // A spawned server that dies before answering most likely lost its port to another
+    // program in the moment after we checked it — respawn on a fresh port (twice at most).
+    for (let attempt = 0; ; attempt++) {
+      try { await waitForPort(serverPort, 20000, serverProcess); break; }
+      catch (e) {
+        if (!needSpawn || attempt >= 2 || !/server exited/.test(e.message)) throw e;
+        log('server on port ' + serverPort + ' failed (' + e.message + ') — retrying on another port');
+        serverPort = await getOsFreePort();
+        serverProcess = spawnServer(serverPort);
+      }
+    }
+    saveLastPort(userData, serverPort);
+    win.loadURL('http://localhost:' + serverPort);
+    log('navigated to app on port ' + serverPort);
   } catch (e) {
-    log('Port 3000 not available: ' + e.message);
+    log('Server not available on port ' + serverPort + ': ' + e.message);
     dialog.showErrorBox(
       'Mailmind failed to start',
-      'The server did not respond within 20 seconds.\n\n' +
-      'Possible cause: port 3000 is already in use by another application.\n\n' +
+      (/server exited/.test(e.message)
+        ? 'The Mailmind server stopped while starting up.\n\n'
+        : 'The server did not respond within 20 seconds.\n\n') +
       'Debug log: ' + logFile
     );
     app.quit();

@@ -39,29 +39,34 @@ app.use(
 
 // ── AI Engine v2 ──────────────────────────────────────────────────────────────
 const DEFAULT_PROVIDER = "groq";
-const DEFAULT_MODEL    = "llama-3.3-70b-versatile";
+const DEFAULT_MODEL    = "openai/gpt-oss-120b";
 
 // Per-provider fallback model — prevents sending e.g. a Groq model name to Gemini.
 const PROVIDER_DEFAULT_MODEL = {
-  groq:      "llama-3.3-70b-versatile",
-  openai:    "gpt-4o-mini",
-  anthropic: "claude-3-5-sonnet-20241022",
-  gemini:    "gemini-2.5-flash",
+  groq:      "openai/gpt-oss-120b",
+  openai:    "gpt-6-luna",
+  anthropic: "claude-opus-5-5",
+  gemini:    "gemini-3.6-flash",
   mistral:   "mistral-large-latest",
 };
+// Models the providers have shut down. A saved setting (DB or browser) pointing at one
+// would fail every AI call, so it silently moves to the provider's current replacement.
+const RETIRED_MODEL = /^(llama-3\.[13]-|llama-4-|meta-llama\/llama-4-|mixtral-8x7b-32768$|gemma2-9b-it$|o1(-mini)?$|o4-mini$|gpt-3\.5-turbo|gpt-4-turbo|claude-3-|gemini-1\.5-|gemini-2\.0-|open-mistral-7b$|open-mixtral-)/i;
+const RETIRED_REPLACEMENT = { "llama-3.1-8b-instant": "openai/gpt-oss-20b", "gemma2-9b-it": "openai/gpt-oss-20b" };
 // Resolve a model that is valid for the given provider. If the supplied model is
-// empty OR looks like it belongs to a different provider, use the provider default.
+// empty, retired, OR looks like it belongs to a different provider, use the provider default.
 function resolveModel(provider, model) {
   const p = (provider || DEFAULT_PROVIDER).toLowerCase();
   const fallback = PROVIDER_DEFAULT_MODEL[p] || DEFAULT_MODEL;
   const m = (model && model.trim()) || "";
   if (!m) return fallback;
+  if (RETIRED_MODEL.test(m)) return RETIRED_REPLACEMENT[m] || fallback;
   // Detect obvious cross-provider mismatches (e.g. "llama-..." sent to gemini)
   const looksLike = {
     gemini:    /^gemini|^models\//i,
     anthropic: /^claude/i,
     openai:    /^(gpt|o[0-9]|chatgpt)/i,
-    groq:      /llama|mixtral|gemma|qwen|deepseek|kimi|moonshot/i,
+    groq:      /llama|mixtral|gemma|qwen|deepseek|kimi|moonshot|gpt-oss|minimax|muse/i,
     mistral:   /mistral|mixtral|ministral|codestral|magistral/i,
   };
   const pat = looksLike[p];
@@ -74,6 +79,41 @@ function resolveModel(provider, model) {
     if (belongsElsewhere) return fallback;
   }
   return m;
+}
+
+// ── Per-provider request shape for thinking models ────────────────────────────
+// Newer models think before answering and reject the old sampling knobs, so each
+// helper returns the body fields that model accepts. Thinking spends output budget,
+// so callers give these models more max tokens than the answer itself needs.
+
+// Claude Opus 4.7+ and every 5.x / Fable model reject temperature (400) — steer with
+// effort instead. The 5.x line also opts into the server-side refusal fallback.
+const _CLAUDE_NO_SAMPLING = /^claude-(fable|mythos|opus-4-[78]|opus-5|sonnet-5|haiku-5)/i;
+const _CLAUDE_FALLBACK    = /^claude-(fable-5-1|opus-5|sonnet-5-5)/i;
+function _anthropicGen(model, temperature) {
+  if (!_CLAUDE_NO_SAMPLING.test(model)) return { temperature };
+  return { output_config: { effort: "low" }, ...(_CLAUDE_FALLBACK.test(model) ? { fallbacks: "default" } : {}) };
+}
+function _anthropicHeaders(model, apiKey, body) {
+  const betas = ["prompt-caching-2024-07-31"];
+  if (_CLAUDE_FALLBACK.test(model)) betas.push("server-side-fallback-2026-07-01");
+  return { "Content-Type": "application/json", "x-api-key": apiKey,
+    "anthropic-version": "2023-06-01", "anthropic-beta": betas.join(","),
+    "Content-Length": Buffer.byteLength(body) };
+}
+// Thinking models put a `thinking` block first, so content[0] is not the answer —
+// join every text block instead. A refusal with no text surfaces as an error.
+function _anthropicText(p) {
+  const text = (p.content || []).filter(b => b.type === "text").map(b => b.text).join("");
+  if (!text && p.stop_reason === "refusal") throw Object.assign(new Error("Claude declined to answer this request."), { passThrough: true });
+  return text;
+}
+
+// Gemini 3.x / 4 always think; thinkingBudget:0 only switches thinking off on 2.5.
+function _geminiGen(model, temperature) {
+  return /^gemini-[12]\./i.test(model)
+    ? { temperature, thinkingConfig: { thinkingBudget: 0 } }
+    : { thinkingConfig: { thinkingLevel: "low" } };
 }
 
 // Shared system prompt — Anthropic caches this block; others receive it as system role.
@@ -208,22 +248,20 @@ async function classifyBatch(items, { provider, model, apiKey }) {
     .map(r => ({ id: r.id, category: r.category, action: VALID_ACT.has(r.action) ? r.action : null }));
 }
 
-// Anthropic: prompt-cached system block + temperature 0.1 for deterministic JSON
+// Anthropic: prompt-cached system block + temperature 0.1 (or low effort) for deterministic JSON
 function _anthropicJson(userContent, { apiKey, model, system = SYSTEM_PROMPT }) {
   const body = JSON.stringify({
-    model, max_tokens: 2048, temperature: 0.1,
+    model, max_tokens: 8192, ..._anthropicGen(model, 0.1),
     system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: userContent }],
   });
   return new Promise((resolve, reject) => {
     const req = https.request({
       hostname: "api.anthropic.com", path: "/v1/messages", method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01", "anthropic-beta": "prompt-caching-2024-07-31",
-        "Content-Length": Buffer.byteLength(body) },
+      headers: _anthropicHeaders(model, apiKey, body),
     }, r => { let d = ""; r.on("data", c => d += c); r.on("end", () => {
-      try { const p = JSON.parse(d); if (p.error) return reject(new Error(p.error.message||JSON.stringify(p.error))); resolve(p.content?.[0]?.text || ""); }
-      catch(e) { reject(new Error("Anthropic parse: " + d.slice(0,300))); }
+      try { const p = JSON.parse(d); if (p.error) return reject(new Error(p.error.message||JSON.stringify(p.error))); resolve(_anthropicText(p)); }
+      catch(e) { reject(e.passThrough ? e : new Error("Anthropic parse: " + d.slice(0,300))); }
     }); });
     req.setTimeout(45000, () => req.destroy(new Error("AI request timed out (45s)")));
     req.on("error", reject); req.write(body); req.end();
@@ -231,15 +269,25 @@ function _anthropicJson(userContent, { apiKey, model, system = SYSTEM_PROMPT }) 
 }
 
 // OpenAI / Groq / Mistral: system message + json_object response_format
-// Reasoning models (o1/o3/o4) don't support temperature; o1 also lacks system role + json mode.
-function _isReasoning(model) { return /^o\d/i.test(model); }
+// Reasoning models (o-series, GPT-5/6, Groq's gpt-oss) don't support temperature and take
+// max_completion_tokens, which also covers their thinking; o1 also lacks system role + json mode.
+function _isReasoning(model) { return /^(o\d|gpt-[5-9])/i.test(model) || /gpt-oss/i.test(model); }
 function _isO1(model)        { return /^o1/i.test(model); }
+// Sampling fields for one OpenAI-compatible request. GPT-5+/gpt-oss also get low
+// reasoning effort so short email tasks don't spend seconds (and budget) thinking.
+function _oaGen(model, temperature, maxTokens) {
+  // Groq's Qwen writes <think>…</think> into the reply by default — switch thinking off.
+  if (/^qwen\//i.test(model)) return { temperature, max_tokens: maxTokens, reasoning_effort: "none" };
+  if (!_isReasoning(model)) return { temperature, max_tokens: maxTokens };
+  return { max_completion_tokens: Math.max(maxTokens * 4, 4096),
+    ...(/^gpt-[5-9]|gpt-oss/i.test(model) ? { reasoning_effort: "low" } : {}) };
+}
 
 function _openAIJson(userContent, { hostname, path, key, model, system = SYSTEM_PROMPT }) {
   let bodyObj;
   if (_isReasoning(model)) {
     bodyObj = {
-      model, max_completion_tokens: 4096,
+      model, ..._oaGen(model, 0.1, 2048),
       messages: _isO1(model)
         // o1 has no system role — merge prompts into a single user message
         ? [{ role: "user", content: system + "\n\n" + userContent }]
@@ -273,9 +321,9 @@ function _geminiJson(userContent, { apiKey, model, system = SYSTEM_PROMPT }) {
     contents: [{ parts: [{ text: userContent }] }],
     systemInstruction: { parts: [{ text: system }] },
     generationConfig: {
-      responseMimeType: "application/json", temperature: 0.1,
-      maxOutputTokens: 4096,        // headroom so the JSON answer isn't truncated
-      thinkingConfig: { thinkingBudget: 0 },  // disable 2.5 "thinking" so tokens go to the answer
+      responseMimeType: "application/json",
+      maxOutputTokens: 8192,        // headroom so thinking never truncates the JSON answer
+      ..._geminiGen(model, 0.1),
     },
   });
   return new Promise((resolve, reject) => {
@@ -375,9 +423,7 @@ function _streamOpenAI(userContent, { hostname, path, key, model }, onChunk, onD
   const body = JSON.stringify({
     model, stream: true,
     messages: [{ role: "system", content: STREAM_SYSTEM_PROMPT }, { role: "user", content: userContent }],
-    ...(_isReasoning(model)
-      ? { max_completion_tokens: 1500 }
-      : { temperature: 0.65, max_tokens: 1500 }),
+    ..._oaGen(model, 0.65, 1500),
   });
   return new Promise((resolve, reject) => {
     const req = https.request({
@@ -418,7 +464,7 @@ function _streamOpenAI(userContent, { hostname, path, key, model }, onChunk, onD
       res.on("end", () => { onDone(); resolve(); });
       res.on("error", e => { onError(e.message); reject(e); });
     });
-    req.setTimeout(30000, () => { req.destroy(); onError("Request timed out after 30s"); });
+    req.setTimeout(60000, () => { req.destroy(); onError("Request timed out after 60s"); });
     req.on("error", e => { onError(e.message); reject(e); });
     req.write(body); req.end();
   });
@@ -426,16 +472,14 @@ function _streamOpenAI(userContent, { hostname, path, key, model }, onChunk, onD
 
 function _streamAnthropic(userContent, { apiKey, model }, onChunk, onDone, onError) {
   const body = JSON.stringify({
-    model, max_tokens: 1500, temperature: 0.65, stream: true,
+    model, max_tokens: 8192, ..._anthropicGen(model, 0.65), stream: true,
     system: [{ type: "text", text: STREAM_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: userContent }],
   });
   return new Promise((resolve, reject) => {
     const req = https.request({
       hostname: "api.anthropic.com", path: "/v1/messages", method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01", "anthropic-beta": "prompt-caching-2024-07-31",
-        "Content-Length": Buffer.byteLength(body) },
+      headers: _anthropicHeaders(model, apiKey, body),
     }, res => {
       if (res.statusCode >= 400) {
         let d = "";
@@ -466,7 +510,7 @@ function _streamAnthropic(userContent, { apiKey, model }, onChunk, onDone, onErr
       res.on("end", () => { onDone(); resolve(); });
       res.on("error", e => { onError(e.message); reject(e); });
     });
-    req.setTimeout(30000, () => { req.destroy(); onError("Request timed out after 30s"); });
+    req.setTimeout(60000, () => { req.destroy(); onError("Request timed out after 60s"); });
     req.on("error", e => { onError(e.message); reject(e); });
     req.write(body); req.end();
   });
@@ -476,7 +520,7 @@ function _streamGemini(userContent, { apiKey, model }, onChunk, onDone, onError)
   const body = JSON.stringify({
     contents: [{ parts: [{ text: userContent }] }],
     systemInstruction: { parts: [{ text: STREAM_SYSTEM_PROMPT }] },
-    generationConfig: { temperature: 0.65, maxOutputTokens: 2048, thinkingConfig: { thinkingBudget: 0 } },
+    generationConfig: { maxOutputTokens: 8192, ..._geminiGen(model, 0.65) },
   });
   return new Promise((resolve, reject) => {
     const req = https.request({
@@ -514,7 +558,7 @@ function _streamGemini(userContent, { apiKey, model }, onChunk, onDone, onError)
       res.on("end", () => { onDone(); resolve(); });
       res.on("error", e => { onError(e.message); reject(e); });
     });
-    req.setTimeout(30000, () => { req.destroy(); onError("Request timed out after 30s"); });
+    req.setTimeout(60000, () => { req.destroy(); onError("Request timed out after 60s"); });
     req.on("error", e => { onError(e.message); reject(e); });
     req.write(body); req.end();
   });
@@ -528,19 +572,19 @@ async function getQuickReplies(threadContext, { provider, model, apiKey }) {
   try {
     let text;
     if (p === "anthropic") {
-      const b = JSON.stringify({ model:m, max_tokens:150, temperature:0.5,
+      const b = JSON.stringify({ model:m, max_tokens:2048, ..._anthropicGen(m, 0.5),
         system:[{type:"text",text:"You suggest concise email reply starters.",cache_control:{type:"ephemeral"}}],
         messages:[{role:"user",content:userContent}] });
       text = await new Promise((res,rej) => {
         const req = https.request({ hostname:"api.anthropic.com", path:"/v1/messages", method:"POST",
-          headers:{"Content-Type":"application/json","x-api-key":resolveKey(p,apiKey),"anthropic-version":"2023-06-01","anthropic-beta":"prompt-caching-2024-07-31","Content-Length":Buffer.byteLength(b)} },
-          r => { let d=""; r.on("data",c=>d+=c); r.on("end",()=>{ try{res(JSON.parse(d).content?.[0]?.text||"")}catch{res("")} }); });
+          headers:_anthropicHeaders(m, resolveKey(p,apiKey), b) },
+          r => { let d=""; r.on("data",c=>d+=c); r.on("end",()=>{ try{res(_anthropicText(JSON.parse(d)))}catch{res("")} }); });
         req.setTimeout(45000, () => req.destroy(new Error("AI request timed out (45s)")));
         req.on("error",rej); req.write(b); req.end();
       });
     } else if (p === "gemini") {
       const b = JSON.stringify({ contents:[{parts:[{text:userContent}]}],
-        generationConfig:{responseMimeType:"application/json",maxOutputTokens:512,temperature:0.5,thinkingConfig:{thinkingBudget:0}} });
+        generationConfig:{responseMimeType:"application/json",maxOutputTokens:2048,..._geminiGen(m, 0.5)} });
       text = await new Promise((res,rej) => {
         const req = https.request({ hostname:"generativelanguage.googleapis.com",
           path:`/v1beta/models/${m}:generateContent?key=${resolveKey(p,apiKey)}`, method:"POST",
@@ -551,7 +595,7 @@ async function getQuickReplies(threadContext, { provider, model, apiKey }) {
       });
     } else {
       const h = OPENAI_HOSTS[p] || OPENAI_HOSTS.groq;
-      const b = JSON.stringify({ model:m, temperature:0.5, max_tokens:150,
+      const b = JSON.stringify({ model:m, ..._oaGen(m, 0.5, 150),
         response_format:{type:"json_object"},
         messages:[{role:"user",content:userContent}] });
       text = await new Promise((res,rej) => {
@@ -588,19 +632,17 @@ async function callAIText(prompt, { provider, model, apiKey } = {}) {
 
   if (p === "anthropic") {
     const body = JSON.stringify({
-      model: m, max_tokens: 2048, temperature: 0.7,
+      model: m, max_tokens: 8192, ..._anthropicGen(m, 0.7),
       system: [{ type: "text", text: STREAM_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: prompt }],
     });
     return new Promise((resolve, reject) => {
       const req = https.request({
         hostname: "api.anthropic.com", path: "/v1/messages", method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": key,
-          "anthropic-version": "2023-06-01", "anthropic-beta": "prompt-caching-2024-07-31",
-          "Content-Length": Buffer.byteLength(body) },
+        headers: _anthropicHeaders(m, key, body),
       }, r => { let d = ""; r.on("data", c => d += c); r.on("end", () => {
-        try { const parsed = JSON.parse(d); if (parsed.error) return reject(new Error(parsed.error.message)); resolve(parsed.content?.[0]?.text || ""); }
-        catch(e) { reject(new Error("Anthropic text parse: " + d.slice(0, 300))); }
+        try { const parsed = JSON.parse(d); if (parsed.error) return reject(new Error(parsed.error.message)); resolve(_anthropicText(parsed)); }
+        catch(e) { reject(e.passThrough ? e : new Error("Anthropic text parse: " + d.slice(0, 300))); }
       }); });
       req.setTimeout(45000, () => req.destroy(new Error("AI request timed out (45s)")));
     req.on("error", reject); req.write(body); req.end();
@@ -611,7 +653,7 @@ async function callAIText(prompt, { provider, model, apiKey } = {}) {
     const body = JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
       systemInstruction: { parts: [{ text: STREAM_SYSTEM_PROMPT }] },
-      generationConfig: { temperature: 0.7, maxOutputTokens: 2048, thinkingConfig: { thinkingBudget: 0 } },
+      generationConfig: { maxOutputTokens: 8192, ..._geminiGen(m, 0.7) },
     });
     return new Promise((resolve, reject) => {
       const req = https.request({
@@ -630,7 +672,7 @@ async function callAIText(prompt, { provider, model, apiKey } = {}) {
   // OpenAI / Groq / Mistral — plain text, no response_format
   const h = OPENAI_HOSTS[p] || OPENAI_HOSTS.groq;
   const bodyObj = {
-    model: m, temperature: 0.7, max_tokens: 2048,
+    model: m, ..._oaGen(m, 0.7, 2048),
     messages: [{ role: "system", content: STREAM_SYSTEM_PROMPT }, { role: "user", content: prompt }],
   };
   const body = JSON.stringify(bodyObj);
@@ -857,12 +899,16 @@ function generatePkcePair() {
   return { verifier, challenge };
 }
 
+// OAuth redirects must point at the port this server actually bound — the desktop app
+// moves off 3000 when another program holds it (main.js passes the chosen PORT).
+function localOrigin() { return `http://localhost:${process.env.PORT || 3000}`; }
+
 // ── Google OAuth ──────────────────────────────────────────────────────────────
 function makeOAuth2Client() {
   return new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET || undefined,   // absent → public-client (PKCE-only) flow
-    "http://localhost:3000/auth/callback"
+    localOrigin() + "/auth/callback"
   );
 }
 
@@ -980,7 +1026,7 @@ app.get("/auth/microsoft", (req, res) => {
   if (!clientId) return res.status(500).send(
     "MICROSOFT_CLIENT_ID is not set in .env.<br>Please register an Azure app and add the credentials — see the setup guide."
   );
-  const redirectUri = process.env.MICROSOFT_REDIRECT_URI || "http://localhost:3000/auth/microsoft/callback";
+  const redirectUri = process.env.MICROSOFT_REDIRECT_URI || localOrigin() + "/auth/microsoft/callback";
   const pkce = generatePkcePair();
   req.session.msPkceVerifier = pkce.verifier;
   const params = new URLSearchParams({
@@ -1001,7 +1047,7 @@ app.get("/auth/microsoft/callback", async (req, res) => {
   if (error) return res.redirect("/?error=" + encodeURIComponent(error_description || error));
   if (!code) return res.redirect("/?error=no_code_returned");
   try {
-    const redirectUri = process.env.MICROSOFT_REDIRECT_URI || "http://localhost:3000/auth/microsoft/callback";
+    const redirectUri = process.env.MICROSOFT_REDIRECT_URI || localOrigin() + "/auth/microsoft/callback";
     const codeVerifier = req.session.msPkceVerifier;
     delete req.session.msPkceVerifier;
     const data = await msPost({
@@ -1105,7 +1151,7 @@ function zohoPost(params) {
 app.get("/auth/zoho", (req, res) => {
   const clientId = process.env.ZOHO_CLIENT_ID;
   if (!clientId) return res.status(500).send("ZOHO_CLIENT_ID not set in .env — see setup guide.");
-  const redirectUri = process.env.ZOHO_REDIRECT_URI || "http://localhost:3000/auth/zoho/callback";
+  const redirectUri = process.env.ZOHO_REDIRECT_URI || localOrigin() + "/auth/zoho/callback";
   const params = new URLSearchParams({
     client_id: clientId, response_type: "code", redirect_uri: redirectUri,
     scope: "ZohoMail.messages.READ,ZohoMail.messages.CREATE,ZohoMail.messages.UPDATE,ZohoMail.folders.READ,ZohoMail.accounts.READ,IMAP.AccessToken",
@@ -1118,7 +1164,7 @@ app.get("/auth/zoho/callback", async (req, res) => {
   const { code, error } = req.query;
   if (error || !code) return res.redirect("/?error=zoho_auth_cancelled");
   try {
-    const redirectUri = process.env.ZOHO_REDIRECT_URI || "http://localhost:3000/auth/zoho/callback";
+    const redirectUri = process.env.ZOHO_REDIRECT_URI || localOrigin() + "/auth/zoho/callback";
     const tok = await zohoPost({ grant_type:"authorization_code", client_id:process.env.ZOHO_CLIENT_ID, client_secret:process.env.ZOHO_CLIENT_SECRET, code, redirect_uri:redirectUri });
     // Get user email from Zoho Mail API
     const dc = (process.env.ZOHO_DC || 'com') === 'in' ? 'in' : 'com';
@@ -1168,7 +1214,7 @@ function yahooPost(params) {
 app.get("/auth/yahoo", (req, res) => {
   const clientId = process.env.YAHOO_CLIENT_ID;
   if (!clientId) return res.status(500).send("YAHOO_CLIENT_ID not set in .env — see setup guide.");
-  const redirectUri = process.env.YAHOO_REDIRECT_URI || "http://localhost:3000/auth/yahoo/callback";
+  const redirectUri = process.env.YAHOO_REDIRECT_URI || localOrigin() + "/auth/yahoo/callback";
   const params = new URLSearchParams({
     client_id: clientId, response_type: "code", redirect_uri: redirectUri,
     scope: "mail-r mail-w", language: "en-us",
@@ -1180,7 +1226,7 @@ app.get("/auth/yahoo/callback", async (req, res) => {
   const { code, error } = req.query;
   if (error || !code) return res.redirect("/?error=yahoo_auth_cancelled");
   try {
-    const redirectUri = process.env.YAHOO_REDIRECT_URI || "http://localhost:3000/auth/yahoo/callback";
+    const redirectUri = process.env.YAHOO_REDIRECT_URI || localOrigin() + "/auth/yahoo/callback";
     const tok = await yahooPost({ grant_type:"authorization_code", code, redirect_uri:redirectUri });
     // Yahoo returns xoauth_yahoo_guid; get email from profile
     let email = null;
@@ -2174,7 +2220,7 @@ app.post("/api/test-ai", withAuth, async (req, res) => {
     if (p === "gemini") {
       const body = JSON.stringify({
         contents: [{ parts: [{ text: ping }] }],
-        generationConfig: { maxOutputTokens: 10, temperature: 0 },
+        generationConfig: { maxOutputTokens: 1024, ..._geminiGen(m, 0) },
       });
       try {
         result = await new Promise((resolve, reject) => {
@@ -2218,20 +2264,21 @@ app.post("/api/test-ai", withAuth, async (req, res) => {
         throw e;
       }
     } else if (p === "anthropic") {
-      const body = JSON.stringify({ model: m, max_tokens: 10, temperature: 0, messages: [{ role:"user", content: ping }] });
+      const body = JSON.stringify({ model: m, max_tokens: 1024, ..._anthropicGen(m, 0), messages: [{ role:"user", content: ping }] });
       result = await new Promise((resolve, reject) => {
         const req2 = require("https").request({
           hostname: "api.anthropic.com", path: "/v1/messages", method: "POST",
-          headers: { "Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","Content-Length":Buffer.byteLength(body) },
+          headers: _anthropicHeaders(m, key, body),
         }, r => { let d = ""; r.on("data", c => d += c); r.on("end", () => {
-          try { const j = JSON.parse(d); if (j.error) return reject(new Error(j.error.message)); resolve(j.content?.[0]?.text || "OK"); }
-          catch(e) { reject(new Error("Parse: " + d.slice(0,200))); }
+          try { const j = JSON.parse(d); if (j.error) return reject(new Error(j.error.message)); resolve(_anthropicText(j) || "OK"); }
+          catch(e) { reject(e.passThrough ? e : new Error("Parse: " + d.slice(0,200))); }
         }); });
+        req2.setTimeout(30000, () => { req2.destroy(); reject(new Error("Request timed out — check your internet connection")); });
         req2.on("error", reject); req2.write(body); req2.end();
       });
     } else {
       const h = OPENAI_HOSTS[p] || OPENAI_HOSTS.groq;
-      const body = JSON.stringify({ model: m, max_tokens: 10, temperature: 0, messages: [{ role:"user", content: ping }] });
+      const body = JSON.stringify({ model: m, ..._oaGen(m, 0, 10), messages: [{ role:"user", content: ping }] });
       result = await new Promise((resolve, reject) => {
         const req2 = require("https").request({
           hostname: h.hostname, path: h.path, method: "POST",
@@ -2281,7 +2328,7 @@ app.get('/api/models/:provider', withAuth, async (req, res) => {
     if (p === 'groq') {
       const data = await httpsGetJson('api.groq.com', '/openai/v1/models', { Authorization: 'Bearer ' + apiKey });
       models = (data.data || [])
-        .filter(m => !/whisper|tts|orpheus|compound|guard|tool|vision|embed|allam/i.test(m.id) && !m.id.startsWith('openai/') && !/-[23]b/i.test(m.id))
+        .filter(m => !/whisper|tts|orpheus|compound|guard|safeguard|tool|vision|embed|allam/i.test(m.id) && !/-[23]b/i.test(m.id))
         .sort((a, b) => (b.created || 0) - (a.created || 0))
         .map(m => ({ id: m.id, name: m.id }));
     } else if (p === 'openai') {
@@ -2385,5 +2432,5 @@ process.on("uncaughtException",  (e) => { console.error("uncaughtException:", e 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "127.0.0.1", () => {
   console.log(`\n✅ Mailmind running at http://localhost:${PORT}`);
-  console.log(`   AI powered by: Groq LLaMA3 (free)\n`);
+  console.log(`   Default AI: Groq ${DEFAULT_MODEL} (free)\n`);
 });
