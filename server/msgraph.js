@@ -200,7 +200,8 @@ module.exports = {
   },
 
   // ── Fetch full conversation (all messages sharing a conversationId) ──────────
-  async getThread(token, conversationId) {
+  // peek: background prefetch — skip the mark-as-read PATCH.
+  async getThread(token, conversationId, { peek = false } = {}) {
     // $filter + $orderby together → "InefficientFilter / too complex" on Exchange.
     // Fetch without $orderby and sort by receivedDateTime in JS instead.
     const filter = encodeURIComponent(`conversationId eq '${odataStr(conversationId)}'`);
@@ -214,7 +215,7 @@ module.exports = {
     );
 
     // Mark unread messages as read
-    await Promise.all(
+    if (!peek) await Promise.all(
       msgs.filter(m => !m.isRead)
           .map(m => gPatch(token, `/me/messages/${m.id}`, { isRead: true }).catch(() => {}))
     );

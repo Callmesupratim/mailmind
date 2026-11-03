@@ -1,5 +1,6 @@
 // ── Generic IMAP/SMTP provider ────────────────────────────────────────────────
 // Works with any mailbox given host/port + app-password (or OAuth accessToken).
+const crypto = require("crypto");
 const { ImapFlow } = require("imapflow");
 const { simpleParser } = require("mailparser");
 const nodemailer = require("nodemailer");
@@ -74,11 +75,84 @@ function makeClient(creds) {
   return client;
 }
 
-async function withClient(creds, fn) {
+// One-shot connection — used where a fresh login is the point (testConnection).
+async function withFreshClient(creds, fn) {
   const client = makeClient(creds);
   await client.connect();
   try { return await fn(client); }
   finally { try { await client.logout(); } catch {} }
+}
+
+// ── Connection pool ──────────────────────────────────────────────────────────
+// Connect + TLS + LOGIN costs 1–3s per request on most hosts, so keep one live
+// connection per mailbox and reuse it. imapflow queues commands and mailbox
+// locks internally, so concurrent requests share a client safely, and its
+// auto-IDLE keeps the selected mailbox's state fresh between requests.
+// Keyed by a hash of host/user/secret, so a changed password or refreshed OAuth
+// token gets a new connection and the old one simply idles out.
+const POOL_IDLE_MS = 5 * 60_000;
+const _pool = new Map();   // key → { client, ready, active, timer }
+
+function poolKey(creds) {
+  return crypto.createHash("sha256")
+    .update([creds.imapHost, creds.imapPort || 993, creds.user, creds.pass || "", creds.accessToken || ""].join("\0"))
+    .digest("hex");
+}
+
+function dropEntry(key, entry) {
+  if (_pool.get(key) === entry) _pool.delete(key);
+  clearTimeout(entry.timer);
+  try { entry.client.close(); } catch {}
+}
+
+async function acquire(creds) {
+  const key = poolKey(creds);
+  let entry = _pool.get(key);
+  if (entry && entry.connected && !entry.client.usable) { dropEntry(key, entry); entry = null; }
+  if (!entry) {
+    const client = makeClient(creds);
+    entry = { client, active: 0, timer: null, connected: false };
+    entry.ready = client.connect().then(
+      () => { entry.connected = true; },
+      (e) => { if (_pool.get(key) === entry) _pool.delete(key); throw e; });
+    client.on("close", () => { if (_pool.get(key) === entry) _pool.delete(key); clearTimeout(entry.timer); });
+    _pool.set(key, entry);
+  }
+  clearTimeout(entry.timer);
+  entry.active++;
+  try { await entry.ready; }
+  catch (e) { entry.active--; throw e; }
+  return { key, entry };
+}
+
+function release(key, entry) {
+  entry.active--;
+  if (entry.active > 0) return;
+  clearTimeout(entry.timer);
+  entry.timer = setTimeout(() => {
+    if (entry.active > 0) return;
+    if (_pool.get(key) === entry) _pool.delete(key);
+    entry.client.logout().catch(() => {});
+  }, POOL_IDLE_MS);
+  entry.timer.unref?.();
+}
+
+// retry: re-run once on a fresh connection if the pooled one turned out to be
+// dead. Only for idempotent work — a move/append that failed mid-flight may
+// already have happened on the server.
+async function withClient(creds, fn, { retry = false } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    const { key, entry } = await acquire(creds);
+    try {
+      return await fn(entry.client);
+    } catch (e) {
+      const dead = !entry.client.usable;
+      if (dead) dropEntry(key, entry);
+      if (!(retry && dead && attempt === 0)) throw e;
+    } finally {
+      release(key, entry);
+    }
+  }
 }
 
 function addrText(a) {
@@ -89,13 +163,23 @@ function addrText(a) {
 // ── Resolve special-use folders (Archive/Trash/Spam/Drafts/Sent) ─────────────
 // Providers use wildly different names; try RFC 6154 special-use flags first,
 // then fall back to common name patterns.
+// Cached per pooled connection — the folder layout almost never changes, and a
+// LIST round-trip on every request was a noticeable slice of each page load.
+const FOLDER_TTL_MS = 10 * 60_000;
+const _folderCache = new WeakMap();   // client → { folders, at }
+
 async function resolveFolders(client) {
+  const hit = _folderCache.get(client);
+  if (hit && Date.now() - hit.at < FOLDER_TTL_MS) return hit.folders;
   const out = {
     inbox: "INBOX", archive: null, trash: null,
     drafts: null,   sent: null,    spam: null, all: null,
   };
+  let listed = false;
   try {
-    for (const f of await client.list()) {
+    const all = await client.list();
+    listed = true;
+    for (const f of all) {
       switch (f.specialUse) {
         case "\\Archive": out.archive = f.path; break;
         case "\\Trash":   out.trash   = f.path; break;
@@ -118,6 +202,7 @@ async function resolveFolders(client) {
   out.drafts = out.drafts || "Drafts";
   out.sent   = out.sent   || "Sent";
   out.spam   = out.spam   || "Spam";
+  if (listed) _folderCache.set(client, { folders: out, at: Date.now() });
   return out;
 }
 
@@ -180,7 +265,7 @@ function structureHasCalendar(node) {
 module.exports = {
   // ── Connection test (used by Add Mailbox) ──────────────────────────────────
   async testConnection(creds) {
-    return withClient(creds, async (client) => {
+    return withFreshClient(creds, async (client) => {
       const lock = await client.getMailboxLock("INBOX");
       lock.release();
       if (!creds.accessToken) {
@@ -260,18 +345,19 @@ module.exports = {
         const nextPageToken = page + 1 < totalPages ? String(page + 1) : null;
         return { emails, nextPageToken };
       } finally { lock.release(); }
-    });
+    }, { retry: true });
   },
 
   // ── Fetch a single message; folder tells us which mailbox to open ──────────
-  async getThread(creds, uid, folder = "INBOX") {
+  // peek: background prefetch — fetch without marking the message \Seen.
+  async getThread(creds, uid, folder = "INBOX", { peek = false } = {}) {
     return withClient(creds, async (client) => {
       const lock = await client.getMailboxLock(folder);
       try {
         const msg = await client.fetchOne(uid, { source: true }, { uid: true });
         if (!msg) throw new Error("message not found");
         const p = await simpleParser(msg.source);
-        try { await client.messageFlagsAdd(uid, ["\\Seen"], { uid: true }); } catch {}
+        if (!peek) try { await client.messageFlagsAdd(uid, ["\\Seen"], { uid: true }); } catch {}
 
         // Return attachment metadata (content served via /api/attachments)
         const attachments = (p.attachments || []).map((a, i) => ({
@@ -300,7 +386,7 @@ module.exports = {
           }],
         };
       } finally { lock.release(); }
-    });
+    }, { retry: true });
   },
 
   // ── Fetch every attachment on a message in one pass — one connection, one
@@ -323,7 +409,7 @@ module.exports = {
           content: a.content,
         }));
       } finally { lock.release(); }
-    });
+    }, { retry: true });
   },
 
   // ── Download one attachment (re-fetches message on demand) ─────────────────
@@ -343,7 +429,7 @@ module.exports = {
         else      await client.messageFlagsRemove(uid, ["\\Seen"], { uid: true });
         return true;
       } finally { lock.release(); }
-    });
+    }, { retry: true });
   },
 
   async setStar(creds, uid, star = true, folder = "INBOX") {
@@ -354,7 +440,7 @@ module.exports = {
         else      await client.messageFlagsRemove(uid, ["\\Flagged"], { uid: true });
         return true;
       } finally { lock.release(); }
-    });
+    }, { retry: true });
   },
 
   // ── Move to Archive / Trash ────────────────────────────────────────────────
@@ -394,7 +480,7 @@ module.exports = {
         if (uids.length) await client.messageFlagsAdd(uids, ['\\Seen'], { uid: true });
         return { count: uids.length };
       } finally { lock.release(); }
-    });
+    }, { retry: true });
   },
 
   // ── Permanently delete everything in Trash ─────────────────────────────────

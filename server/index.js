@@ -1312,6 +1312,127 @@ app.post("/api/accounts/imap", async (req, res) => {
   }
 });
 
+// ── Gmail thread metadata, batched ────────────────────────────────────────────
+// A list page needs one threads.get per conversation (up to 100). Gmail's batch
+// endpoint carries up to 50 of those in one HTTP round-trip, which removes most
+// of the per-request overhead. Anything a batch doesn't hand back (batch error,
+// a per-item 429) falls back to an individual call, so the result never shrinks.
+// Returns thread resources in `ids` order; null where even the fallback failed.
+//
+// Quota: Gmail allows ~15,000 units per user per minute and each threads.get
+// costs 10, so refetching a 100-thread page on every reload burned ~1,000
+// units and a burst of folder switches hit "Quota exceeded". Thread metadata
+// is therefore cached per account and kept honest with the History API: one
+// history.list (2 units) names every thread that changed since the last sync
+// (new messages, read/star/label changes, deletes), and only those — plus
+// threads never seen before — are fetched again.
+const GMAIL_META_HEADERS = ["From", "To", "Cc", "Subject", "Date", "Content-Type", "List-Unsubscribe", "Precedence"];
+const GMAIL_BATCH_SIZE = 25;              // 25 × 10 units ≈ Gmail's per-second burst allowance
+const GMAIL_META_CACHE_MAX = 3000;        // threads per account
+const _gmailMetaCache = new Map();        // accountId → { threads: Map(id → resource), historyId }
+
+// Bring an account's cache up to date; returns it. On any doubt (no baseline,
+// history expired, too many changes) the cache is emptied rather than trusted.
+async function gmailSyncCache(accountId, gmail) {
+  let state = _gmailMetaCache.get(accountId);
+  if (!state) { state = { threads: new Map(), historyId: null }; _gmailMetaCache.set(accountId, state); }
+  if (state.historyId) {
+    try {
+      let pageToken, latest = state.historyId, pages = 0;
+      const changed = new Set();
+      do {
+        const r = await gmail.users.history.list({ userId: "me", startHistoryId: state.historyId, maxResults: 500, ...(pageToken ? { pageToken } : {}) });
+        for (const h of r.data.history || []) {
+          for (const k of ["messages", "messagesAdded", "messagesDeleted", "labelsAdded", "labelsRemoved"])
+            for (const x of h[k] || []) { const tid = (x.message || x).threadId; if (tid) changed.add(tid); }
+        }
+        if (r.data.historyId) latest = r.data.historyId;
+        pageToken = r.data.nextPageToken;
+      } while (pageToken && ++pages < 5);
+      if (pageToken) state.threads.clear();             // too much churn — start clean
+      else changed.forEach(tid => state.threads.delete(tid));
+      state.historyId = latest;
+      return state;
+    } catch {
+      state.threads.clear();                            // 404 = history window expired
+    }
+  }
+  try { state.historyId = (await gmail.users.getProfile({ userId: "me" })).data.historyId || null; }
+  catch { state.historyId = null; }
+  return state;
+}
+
+// syncing: an already-started gmailSyncCache() — callers kick it off alongside
+// their messages.list so the two round-trips overlap instead of queueing.
+// latestIds: newest message id per thread, when the caller knows it — a cached
+// copy that doesn't contain it missed a reply and is refetched.
+async function gmailThreadsMeta(accountId, oauth2, gmail, ids, syncing, latestIds) {
+  const out = new Array(ids.length).fill(null);
+  const state = await (syncing || gmailSyncCache(accountId, gmail));
+  ids.forEach((id, i) => {
+    const hit = state.threads.get(id);
+    if (hit && (!latestIds?.[i] || (hit.messages || []).some(m => m.id === latestIds[i]))) out[i] = hit;
+  });
+  const need = ids.map((id, i) => out[i] ? -1 : i).filter(i => i >= 0);
+  if (need.length) {
+    const fetched = await gmailFetchThreadsMeta(oauth2, gmail, need.map(i => ids[i]));
+    need.forEach((i, k) => {
+      out[i] = fetched[k];
+      // Only cache when we hold a history baseline — otherwise nothing would
+      // ever tell us this copy went stale.
+      if (fetched[k] && state.historyId) state.threads.set(ids[i], fetched[k]);
+    });
+    while (state.threads.size > GMAIL_META_CACHE_MAX) state.threads.delete(state.threads.keys().next().value);
+  }
+  return out;
+}
+
+async function gmailFetchThreadsMeta(oauth2, gmail, ids) {
+  const out = new Array(ids.length).fill(null);
+  let token = null;
+  try { token = (await oauth2.getAccessToken())?.token; } catch {}
+  if (token) {
+    const qs = "format=metadata&" + GMAIL_META_HEADERS.map(h => "metadataHeaders=" + encodeURIComponent(h)).join("&");
+    // Batches go one after another — items inside a batch still count against
+    // the per-user rate, so firing them all in parallel would recreate the burst.
+    for (let start = 0; start < ids.length; start += GMAIL_BATCH_SIZE) {
+      const boundary = "mm_batch_" + crypto.randomBytes(8).toString("hex");
+      const body = ids.slice(start, start + GMAIL_BATCH_SIZE).map((id, j) =>
+        `--${boundary}\r\nContent-Type: application/http\r\nContent-ID: <t${start + j}>\r\n\r\n` +
+        `GET /gmail/v1/users/me/threads/${encodeURIComponent(id)}?${qs}\r\n\r\n`
+      ).join("") + `--${boundary}--\r\n`;
+      try {
+        const r = await fetch("https://gmail.googleapis.com/batch/gmail/v1", {
+          method: "POST", body, signal: AbortSignal.timeout(30000),
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": `multipart/mixed; boundary=${boundary}` },
+        });
+        // A failed batch means the rest would fail too — leave it to the fallback.
+        if (!r.ok) break;
+        const rb = (r.headers.get("content-type") || "").match(/boundary=("?)([^";]+)\1/i)?.[2];
+        if (!rb) break;
+        for (const part of (await r.text()).split("--" + rb)) {
+          const idx = part.match(/Content-ID:\s*<response-t(\d+)>/i)?.[1];
+          if (idx === undefined || part.match(/HTTP\/1\.1\s+(\d{3})/)?.[1] !== "200") continue;
+          const js = part.indexOf("{");
+          if (js < 0) continue;
+          try { out[+idx] = JSON.parse(part.slice(js, part.lastIndexOf("}") + 1)); } catch {}
+        }
+      } catch { break; }
+    }
+  }
+  // A few at a time: Gmail also caps bursts (~250 units/s per user), and firing
+  // every leftover at once is exactly what used to trip "Quota exceeded".
+  const missing = ids.map((_, i) => i).filter(i => !out[i]);
+  await Promise.all(Array.from({ length: Math.min(4, missing.length) }, async () => {
+    for (let i; (i = missing.shift()) !== undefined; ) {
+      try {
+        out[i] = (await gmail.users.threads.get({ userId: "me", id: ids[i], format: "metadata", metadataHeaders: GMAIL_META_HEADERS })).data;
+      } catch (e) { console.error("Thread fetch error:", ids[i], e.message); }
+    }
+  }));
+  return out;
+}
+
 // ── All Mail — fetch inbox from every connected account and merge ─────────────
 app.get("/api/emails/all", async (req, res) => {
   try {
@@ -1349,11 +1470,11 @@ app.get("/api/emails/all", async (req, res) => {
           const gmail = google.gmail({ version: "v1", auth: oauth2 });
           const threadsRes = await gmail.users.threads.list({ userId: "me", q: "in:inbox", maxResults: 20 });
           const threads = threadsRes.data.threads || [];
-          const threadEmails = await Promise.all(threads.map(async t => {
+          const metas = await gmailThreadsMeta(acc.id, oauth2, gmail, threads.map(t => t.id));
+          const threadEmails = threads.map((t, i) => {
             try {
-              const thread = await gmail.users.threads.get({ userId: "me", id: t.id, format: "metadata",
-                metadataHeaders: ["From", "To", "Cc", "Subject", "Date", "Content-Type", "List-Unsubscribe", "Precedence"] });
-              const msgs = thread.data.messages || [];
+              if (!metas[i]) return null;
+              const msgs = metas[i].messages || [];
               const first = msgs[0], last = msgs[msgs.length - 1] || first;
               const hdr = (m, n) => (m?.payload?.headers||[]).find(h=>h.name.toLowerCase()===n.toLowerCase())?.value||"";
               // Same "did I send the last message?" signal as the single-account
@@ -1378,7 +1499,7 @@ app.get("/api/emails/all", async (req, res) => {
                 hasCalendar: msgs.some(m => /text\/calendar/i.test(hdr(m, "Content-Type"))),
               };
             } catch { return null; }
-          }));
+          });
           emails = threadEmails.filter(Boolean);
         }
 
@@ -1413,13 +1534,16 @@ app.get("/api/emails", withAuth, async (req, res) => {
       try { enrichWithSenderStats(req.account.id, result.emails || []); } catch {}
       return res.json(result);
     }
-    const { q = "in:inbox", maxResults = 100, pageToken } = req.query;
-    const wantCount = Math.min(parseInt(maxResults) || 100, 200);
+    // 50 per page: halves the cold-cache cost of a first load; scrolling pages on.
+    const { q = "in:inbox", maxResults = 50, pageToken } = req.query;
+    const wantCount = Math.min(parseInt(maxResults) || 50, 200);
     // IMPORTANT: use messages.list, NOT threads.list. threads.list orders threads by their
     // FIRST message's date, so a long-running conversation whose newest reply is today gets
     // buried past page 1 (and missed entirely). messages.list is sorted by actual message
     // date (internalDate desc), so recent replies always surface. We then dedupe messages
     // into threads, preserving that recency order.
+    const syncing = gmailSyncCache(req.account.id, req.gmail);
+    syncing.catch(() => {});   // awaited below; never let it go unhandled if list throws first
     const msgsRes = await req.gmail.users.messages.list({
       userId: "me", q, maxResults: wantCount,
       ...(pageToken ? { pageToken } : {}),
@@ -1431,16 +1555,15 @@ app.get("/api/emails", withAuth, async (req, res) => {
     const seenThreads = new Set();
     const threads = [];
     for (const m of rawMsgs) {
-      if (!seenThreads.has(m.threadId)) { seenThreads.add(m.threadId); threads.push({ id: m.threadId }); }
+      if (!seenThreads.has(m.threadId)) { seenThreads.add(m.threadId); threads.push({ id: m.threadId, latest: m.id }); }
     }
 
-    const emails = await Promise.all(threads.map(async (t) => {
+    const metas = await gmailThreadsMeta(req.account.id, req.oauth2, req.gmail,
+      threads.map(t => t.id), syncing, threads.map(t => t.latest));
+    const emails = threads.map((t, i) => {
       try {
-        const thread = await req.gmail.users.threads.get({
-          userId: "me", id: t.id, format: "metadata",
-          metadataHeaders: ["From", "To", "Cc", "Subject", "Date", "Content-Type", "List-Unsubscribe", "Precedence"],
-        });
-        const msgs = thread.data.messages || [];
+        if (!metas[i]) return null;
+        const msgs = metas[i].messages || [];
         const firstMsg = msgs[0];
         const lastMsg = msgs[msgs.length - 1] || firstMsg;
         const hdr = (m, name) => (m?.payload?.headers || []).find(h => h.name.toLowerCase() === name.toLowerCase())?.value || "";
@@ -1486,7 +1609,7 @@ app.get("/api/emails", withAuth, async (req, res) => {
         console.error("Thread parse error:", t.id, threadErr.message);
         return null;
       }
-    }));
+    });
     // Re-sort by Gmail internalDate desc (reliable epoch-ms; falls back to Date header parse).
     const out = emails.filter(Boolean).sort((a, b) =>
       (b._sortTs || Date.parse(b.date) || 0) - (a._sortTs || Date.parse(a.date) || 0));
@@ -1494,6 +1617,9 @@ app.get("/api/emails", withAuth, async (req, res) => {
     res.json({ emails: out, nextPageToken });
   } catch (e) {
     console.error("List emails error:", e.message);
+    if (/quota|rate ?limit/i.test(e.message))
+      return res.status(429).json({ rateLimited: true,
+        error: "Gmail is limiting requests for this mailbox right now — wait a minute, then retry." });
     res.status(500).json({ error: e.message });
   }
 });
@@ -1584,12 +1710,15 @@ async function gmailGetThread(gmail, threadId, { keepInlineData = false } = {}) 
 
 app.get("/api/emails/:threadId", withAuth, async (req, res) => {
   try {
+    // peek=1 → background prefetch: must not mark the message read (the frontend
+    // marks read itself when the user actually opens it).
+    const peek = req.query.peek === "1";
     if (req.account.type === "microsoft") {
-      return res.json(await graph.getThread(req.graphToken, req.params.threadId));
+      return res.json(await graph.getThread(req.graphToken, req.params.threadId, { peek }));
     }
     if (req.account.type === "imap") {
       const folder = req.query.folder || "INBOX";
-      return res.json(await imap.getThread(req.account.secret, req.params.threadId, folder));
+      return res.json(await imap.getThread(req.account.secret, req.params.threadId, folder, { peek }));
     }
     res.json(await gmailGetThread(req.gmail, req.params.threadId));
   } catch (e) {

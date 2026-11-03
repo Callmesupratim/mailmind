@@ -1898,6 +1898,7 @@ async function initAuth() {
     $('app').classList.add('visible');
     S.accounts = res.accounts;
     S.activeAcctId = res.activeId || res.accounts[0].id;
+    listCachePrune(res.accounts.map(a => a.id));
     applyAcctAccent(S.activeAcctId);
     renderSidebar();
     hydrateAISettings();
@@ -2309,19 +2310,150 @@ function updateActCounts(emails) {
   });
 }
 
+// ── Saved lists ────────────────────────────────────────────────────────────────
+// The last list seen for each mailbox + folder/filter, so switching or starting
+// the app paints instantly while the fresh list loads behind it. Search results
+// aren't saved. Kept to LIST_CACHE_MAX views via a small index of last-write times.
+const LIST_CACHE_PREFIX = 'mm-list-cache:';
+const LIST_CACHE_INDEX  = 'mm-list-cache-index';
+const LIST_CACHE_MAX    = 12;
+function listCacheKey() {
+  if (S.searchQ || !S.activeAcctId) return null;
+  return LIST_CACHE_PREFIX + S.activeAcctId + ':' + buildQ();
+}
+function listCacheIndex() {
+  try { return JSON.parse(localStorage.getItem(LIST_CACHE_INDEX) || '{}') || {}; } catch { return {}; }
+}
+function listCacheGet(key) {
+  if (!key) return null;
+  try {
+    const v = JSON.parse(localStorage.getItem(key) || 'null');
+    return Array.isArray(v?.emails) && v.emails.length ? v : null;
+  } catch { return null; }
+}
+function listCacheSet(key, emails) {
+  if (!key) return;
+  try {
+    localStorage.setItem(key, JSON.stringify({ at: Date.now(), emails: emails.slice(0, 100) }));
+    const idx = listCacheIndex();
+    idx[key] = Date.now();
+    Object.keys(idx).sort((a, b) => idx[a] - idx[b]).slice(0, Math.max(0, Object.keys(idx).length - LIST_CACHE_MAX))
+      .forEach(k => { localStorage.removeItem(k); delete idx[k]; });
+    localStorage.setItem(LIST_CACHE_INDEX, JSON.stringify(idx));
+  } catch {}
+}
+// keepAcctIds omitted → clear everything (sign-out); otherwise drop views of
+// mailboxes that no longer exist.
+function listCachePrune(keepAcctIds) {
+  try {
+    const keep = keepAcctIds && new Set(keepAcctIds.map(String));
+    const idx = listCacheIndex();
+    Object.keys(localStorage).filter(k => k.startsWith(LIST_CACHE_PREFIX)).forEach(k => {
+      if (keep && keep.has(k.slice(LIST_CACHE_PREFIX.length).split(':')[0])) return;
+      localStorage.removeItem(k); delete idx[k];
+    });
+    localStorage.setItem(LIST_CACHE_INDEX, JSON.stringify(idx));
+  } catch {}
+}
+
+// ── Opened-email cache + prefetch ──────────────────────────────────────────────
+// Full threads kept in memory so re-opening is instant, and the top unread rows
+// (plus whatever the pointer rests on) are fetched ahead of the click. Prefetch
+// uses peek=1 so the server doesn't mark anything read — selectEmail does that.
+// The key includes the latest message id / count, so a new reply misses the cache.
+const THREAD_CACHE_MAX = 60;
+const THREAD_CACHE_TTL = 10 * 60_000;
+const _threadCache = new Map();      // key → { data, at }
+const _threadInflight = new Map();   // key → Promise<data>
+function threadCacheKey(e) {
+  return [e._accountId || S.activeAcctId, e._imapFolder || '', e.conversationId || e.id, e.messageId || e.count || 1].join('|');
+}
+function threadUrl(e, peek) {
+  const qp = new URLSearchParams();
+  if (e._imapFolder) qp.set('folder', e._imapFolder);
+  if (e._accountId) qp.set('accountId', e._accountId);
+  if (peek) qp.set('peek', '1');
+  const qs = qp.toString();
+  return '/api/emails/' + encodeURIComponent(e.conversationId || e.id) + (qs ? '?' + qs : '');
+}
+function threadCacheGet(e) {
+  const hit = _threadCache.get(threadCacheKey(e));
+  return hit && Date.now() - hit.at < THREAD_CACHE_TTL ? hit.data : null;
+}
+function threadCachePut(e, data) {
+  const key = threadCacheKey(e);
+  _threadCache.delete(key);
+  _threadCache.set(key, { data, at: Date.now() });
+  while (_threadCache.size > THREAD_CACHE_MAX) _threadCache.delete(_threadCache.keys().next().value);
+}
+function prefetchThread(e) {
+  if (!e || threadCacheGet(e)) return Promise.resolve();
+  const key = threadCacheKey(e);
+  if (_threadInflight.has(key)) return _threadInflight.get(key);
+  const p = fetch(threadUrl(e, true)).then(r => r.json())
+    .then(data => { if (!data.error) threadCachePut(e, data); return data.error ? null : data; })
+    .catch(() => null)
+    .finally(() => _threadInflight.delete(key));
+  _threadInflight.set(key, p);
+  return p;
+}
+// One at a time — IMAP shares a single connection per mailbox, and a burst of
+// parallel prefetches would only queue behind the user's own click.
+let _prefetchGen = 0;
+async function prefetchTopUnread(emails) {
+  const gen = ++_prefetchGen;
+  for (const e of emails.filter(x => x.unread).slice(0, 5)) {
+    if (gen !== _prefetchGen || document.hidden) return;
+    await prefetchThread(e);
+  }
+}
+let _hoverPrefetchTimer = null;
+$('email-list').addEventListener('mouseover', ev => {
+  const row = ev.target.closest('.er');
+  if (!row || row.contains(ev.relatedTarget)) return;
+  clearTimeout(_hoverPrefetchTimer);
+  _hoverPrefetchTimer = setTimeout(() => {
+    const e = S.emails.find(x => x.id === row.dataset.id);
+    if (e && e !== S.activeEmail) prefetchThread(e);
+  }, 150);
+});
+$('email-list').addEventListener('mouseleave', () => clearTimeout(_hoverPrefetchTimer));
+
+// High-importance+unread first, then unread, then newest.
+function relevanceSort(a, b) {
+  const pri = e => (e.importance === 'high' ? 2 : 0) + (e.unread ? 1 : 0);
+  return pri(b) - pri(a) || new Date(b.date) - new Date(a.date);
+}
+
 // ── Load emails ────────────────────────────────────────────────────────────────
 // silent=true → no spinner, preserves active selection (used by auto-refresh)
+// A non-silent load paints the saved list for this view first (if any), then
+// replaces it with the fresh one; a failed refresh keeps the saved list up.
+let _listGen = 0;
 async function loadEmails(append=false, silent=false, _retry=0) {
   if (append && _loadingMore) return;   // prevent double-fire from IntersectionObserver
+  const gen = append ? _listGen : ++_listGen;
+  const cacheKey = append ? null : listCacheKey();
+  let fromCache = false;
   if (!append) {
     if (_scrollObserver) { _scrollObserver.disconnect(); _scrollObserver = null; }
-    S.emails = []; S.nextPageToken = null;
+    // Keep the current rows during a silent refresh — the merge below needs them.
+    if (!silent) S.emails = [];
+    S.nextPageToken = null;
     // Always reset category filter to "Priority" on a fresh fetch
     S.category = 'priority';
     document.querySelectorAll('.cat-tab').forEach(b => b.classList.remove('on'));
     const allTab = document.querySelector('.cat-tab[data-cat="priority"]');
     if (allTab) allTab.classList.add('on');
-    if (!silent) $('email-list').innerHTML = '<div class="el-loading"><div class="spinner"></div> Loading…</div>';
+    const cached = !silent && listCacheGet(cacheKey);
+    if (cached) {
+      fromCache = true;
+      S.emails = cached.emails.sort(relevanceSort);
+      renderList();
+      updateDigest();
+    } else if (!silent) {
+      $('email-list').innerHTML = '<div class="el-loading"><div class="spinner"></div> Loading…</div>';
+    }
   }
   if (append) _loadingMore = true;
   try {
@@ -2331,7 +2463,9 @@ async function loadEmails(append=false, silent=false, _retry=0) {
     const tid = setTimeout(() => ctrl.abort(), 45000);
     const data = await fetch('/api/emails?' + p, { signal: ctrl.signal })
       .then(r => r.json()).finally(() => clearTimeout(tid));
-    if (data.error) throw new Error(data.error);
+    // The user moved to another mailbox/folder while this was in flight.
+    if (gen !== _listGen) return;
+    if (data.error) throw Object.assign(new Error(data.error), { rateLimited: !!data.rateLimited });
     if (append) {
       // Dedupe by thread id: messages.list pagination can split one thread across page
       // boundaries, so the same thread can arrive on two consecutive pages.
@@ -2365,14 +2499,14 @@ async function loadEmails(append=false, silent=false, _retry=0) {
         _lastTopId = byTs[0].id;
       }
     }
-    // Sort by relevance: high-importance+unread first, then unread, then by date desc
-    S.emails.sort((a, b) => {
-      const pri = e => (e.importance === 'high' ? 2 : 0) + (e.unread ? 1 : 0);
-      return pri(b) - pri(a) || new Date(b.date) - new Date(a.date);
-    });
+    S.emails.sort(relevanceSort);
     S.nextPageToken = data.nextPageToken;
     renderList();
     updateDigest();
+    if (!append) {
+      listCacheSet(cacheKey, S.emails);
+      prefetchTopUnread(S.emails);
+    }
     // Best-effort AI categorization for the regex-uncertain subset — runs after
     // the list is already visible, then re-renders once results land.
     try { classifyUncertainEmails(S.emails); } catch {}
@@ -2389,10 +2523,13 @@ async function loadEmails(append=false, silent=false, _retry=0) {
       }, delay);
     }
   } catch(e) {
+    if (gen !== _listGen) return;
     const msg = e.name === 'AbortError' ? 'Request timed out — check your connection and retry' : e.message;
-    if (!silent) $('email-list').innerHTML = `<div class="el-empty">⚠ ${esc(msg)}<br><button onclick="loadEmails()" style="margin-top:12px;padding:5px 14px;border-radius:6px;border:1px solid var(--bc);background:var(--p2);color:var(--t1);cursor:pointer;font-size:12px">Retry</button></div>`;
-    // Network/abort errors during startup also warrant a silent retry
-    if (!append && !silent && _retry < 3) {
+    if (fromCache) showToast('Couldn’t refresh — showing saved emails. ' + msg, false);
+    else if (!silent) $('email-list').innerHTML = `<div class="el-empty">⚠ ${esc(msg)}<br><button onclick="loadEmails()" style="margin-top:12px;padding:5px 14px;border-radius:6px;border:1px solid var(--bc);background:var(--p2);color:var(--t1);cursor:pointer;font-size:12px">Retry</button></div>`;
+    // Network/abort errors during startup also warrant a silent retry — but not
+    // a rate limit, where every retry spends more of the same quota.
+    if (!append && !silent && !fromCache && !e.rateLimited && _retry < 3) {
       setTimeout(() => { if ((S.emails || []).length === 0) loadEmails(false, true, _retry + 1); }, 1200 * (_retry + 1));
     }
   } finally {
@@ -2616,18 +2753,26 @@ async function selectEmail(id) {
         ...(S.activeEmail._accountId ? { accountId: S.activeEmail._accountId } : {}) }),
     }).catch(() => {});
   }
+  const email = S.activeEmail;
+  const cachedThread = threadCacheGet(email);
+  if (cachedThread) {
+    S.activeThread = cachedThread;
+    renderDetail(cachedThread);
+    showAIReadyPlaceholder();
+    return;
+  }
   showDetailLoading();
   try {
-    // Use conversationId for thread loading (falls back to message id for Gmail/IMAP)
-    const threadId = S.activeEmail.conversationId || id;
-    const folder   = S.activeEmail._imapFolder || '';
-    const qp = new URLSearchParams();
-    if (folder) qp.set('folder', folder);
-    if (S.activeEmail._accountId) qp.set('accountId', S.activeEmail._accountId);
-    const qs = qp.toString() ? '?' + qp.toString() : '';
-    const data = await fetch('/api/emails/' + encodeURIComponent(threadId) + qs, { signal: _signal }).then(r => r.json());
+    // Join a prefetch that's already on the wire rather than starting a second fetch.
+    const pending = _threadInflight.get(threadCacheKey(email));
+    let data = pending ? await pending : null;
     if (_signal.aborted) return;
-    if (data.error) throw new Error(data.error);
+    if (!data) {
+      data = await fetch(threadUrl(email, false), { signal: _signal }).then(r => r.json());
+      if (_signal.aborted) return;
+      if (data.error) throw new Error(data.error);
+      threadCachePut(email, data);
+    }
     S.activeThread = data;
     renderDetail(data);
     // Never auto-analyze — user opens AI panel when they want it
@@ -3977,6 +4122,8 @@ $('add-modal').onclick = e => { if (e.target === $('add-modal')) $('add-modal').
 // ── Sign out ───────────────────────────────────────────────────────────────────
 $('signout-btn').onclick = async () => {
   await fetch('/auth/logout').catch(()=>{});
+  listCachePrune();
+  _threadCache.clear();
   S.accounts = []; S.emails = []; S.activeEmail = null; S.activeThread = null;
   initAuth();
 };
