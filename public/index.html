@@ -2756,6 +2756,7 @@ async function selectEmail(id) {
   const email = S.activeEmail;
   const cachedThread = threadCacheGet(email);
   if (cachedThread) {
+    showDetailPane();
     S.activeThread = cachedThread;
     renderDetail(cachedThread);
     showAIReadyPlaceholder();
@@ -2789,9 +2790,16 @@ function showEmpty() {
   showAIPlaceholder();
 }
 
-function showDetailLoading() {
+// Swap the empty-state placeholder for the reading pane. Every path that shows
+// an email must call this (directly or via showDetailLoading) — renderDetail
+// only fills the pane, it never un-hides it.
+function showDetailPane() {
   $('det-empty').style.display = 'none';
   $('det-content').style.display = 'flex';
+}
+
+function showDetailLoading() {
+  showDetailPane();
   $('det-body').innerHTML = '<div class="el-loading" style="height:200px"><div class="spinner"></div> Loading…</div>';
   $('tb-star').style.color = '';
   showAIReadyPlaceholder();
