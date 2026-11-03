@@ -384,6 +384,12 @@ ipcMain.on('set-sync-settings', (_, s) => {
 
 ipcMain.handle('get-sync-settings', () => syncSettings);
 
+// Latest updater event, so a window that loads (or reloads) after the update finished
+// downloading still learns about it — the push event would otherwise be missed.
+let lastUpdateStatus = null;
+ipcMain.handle('get-update-status', () => lastUpdateStatus);
+let updater = null;   // electron-updater's autoUpdater once loaded (installed app only)
+
 // Lets the renderer know if it's the installed app (so dev-only no-op controls,
 // e.g. launch-on-startup, can be disabled honestly).
 ipcMain.handle('app-is-packaged', () => app.isPackaged);
@@ -421,6 +427,11 @@ function updateTrayMenu() {
         isQuitting = true;
         tray.destroy();
         killServerProcessSync();
+        // app.exit() skips the quit events electron-updater's install-on-quit relies on,
+        // so a downloaded update is installed here explicitly (silently, no relaunch).
+        if (updater && lastUpdateStatus?.status === 'downloaded') {
+          try { updater.quitAndInstall(true, false); return; } catch (e) { log('install on quit: ' + e.message); }
+        }
         app.exit(0);
       },
     },
@@ -648,20 +659,42 @@ app.whenReady().then(async () => {
   });
 
   // ── Auto-updater ──────────────────────────────────────────────────────────────
-  function sendUpdateStatus(status, message) {
-    if (win && !win.isDestroyed()) win.webContents.send('update-status', { status, message });
+  function sendUpdateStatus(status, message, version) {
+    // Once an update is downloaded it stays the answer — a later background check
+    // ('checking' / 'latest' / an offline 'error') must not hide the restart prompt.
+    if (lastUpdateStatus?.status !== 'downloaded' || status === 'downloaded') lastUpdateStatus = { status, message, version };
+    if (win && !win.isDestroyed()) win.webContents.send('update-status', { status, message, version });
     log('updater [' + status + ']: ' + (message || ''));
+  }
+
+  // While the window is hidden in the tray the in-app card can't be seen — tell the
+  // user through Windows instead, once per version.
+  let notifiedVersion = null;
+  function notifyUpdateReady(version) {
+    if (notifiedVersion === version || !Notification.isSupported()) return;
+    if (win && !win.isDestroyed() && win.isVisible() && !win.isMinimized()) return;
+    notifiedVersion = version;
+    const n = new Notification({
+      title: 'Mailmind update ready',
+      body: 'Version ' + version + ' is ready to install. Click to open Mailmind and restart.',
+    });
+    n.on('click', () => { win.show(); win.focus(); });
+    n.show();
   }
 
   if (app.isPackaged) {
     try {
       const { autoUpdater } = require('electron-updater');
+      updater = autoUpdater;
       autoUpdater.logger = { info: m => log('updater: ' + m), warn: m => log('updater WARN: ' + m), error: m => log('updater ERR: ' + m) };
       autoUpdater.on('checking-for-update',  ()  => sendUpdateStatus('checking',   'Checking for updates…'));
-      autoUpdater.on('update-available',     (i) => sendUpdateStatus('available',  'Update v' + i.version + ' found — downloading…'));
+      autoUpdater.on('update-available',     (i) => sendUpdateStatus('available',  'Update v' + i.version + ' found — downloading…', i.version));
       autoUpdater.on('update-not-available', ()  => sendUpdateStatus('latest',     'You\'re on the latest version.'));
       autoUpdater.on('download-progress',    (p) => sendUpdateStatus('progress',   'Downloading… ' + Math.round(p.percent) + '%'));
-      autoUpdater.on('update-downloaded',    (i) => sendUpdateStatus('downloaded', 'Update v' + i.version + ' ready — click Restart to install.'));
+      autoUpdater.on('update-downloaded',    (i) => {
+        sendUpdateStatus('downloaded', 'Update v' + i.version + ' ready — click Restart to install.', i.version);
+        notifyUpdateReady(i.version);
+      });
       autoUpdater.on('error',               (e)  => sendUpdateStatus('error',      'Update error: ' + (e.message || String(e))));
 
       ipcMain.handle('check-for-updates', () => {
@@ -676,8 +709,13 @@ app.whenReady().then(async () => {
         autoUpdater.quitAndInstall();
       });
 
-      // Silent background check on launch
+      // Silent background check on launch, then every 4 hours — the app can sit in the
+      // tray for days, and a launch-only check would never see a new release.
       autoUpdater.checkForUpdates().catch(e => log('auto-update check: ' + e.message));
+      setInterval(() => {
+        if (lastUpdateStatus?.status === 'downloaded') return;   // already have it — nothing to fetch
+        autoUpdater.checkForUpdates().catch(e => log('auto-update check: ' + e.message));
+      }, 4 * 60 * 60 * 1000);
     } catch (e) {
       log('Auto-updater error: ' + e.message);
       ipcMain.handle('check-for-updates', () => sendUpdateStatus('error', 'Updater unavailable.'));

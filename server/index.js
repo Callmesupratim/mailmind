@@ -148,6 +148,8 @@ const BATCH_CLASSIFY_SYSTEM =
 CATEGORY (what the email is about) — exactly one of:
 "work", "financial", "shopping", "promotional", "spam".
 Use "work" for anything that doesn't clearly fit the other four — professional correspondence, personal messages, government/security notices, and anything ambiguous all default to "work".
+"financial" covers bank and card alerts (UPI debits, balance updates, statements), invoices, investments, and shareholder mail (dividends, results, e-voting, demat).
+"promotional" covers marketing, offers, newsletters, job alerts, and social-network digests. An unsolicited sales pitch from a vendor the user has no existing relationship with is "promotional"; one that continues a real business conversation is "work".
 
 ACTION (what the user must do) — exactly one of:
 "needaction" (they must reply or do something), "schedule" (a meeting, invite, appointment, or deadline), "pending" (the user already responded or it is in transit — the ball is in someone else's court), "conversations" (human back-and-forth with no explicit ask), "readonly" (nothing to do — receipts, newsletters, notifications).

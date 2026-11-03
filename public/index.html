@@ -26,14 +26,17 @@ textarea,input,select{font-family:inherit}
   --lo:oklch(66% 0.18 148);--lobg:oklch(66% 0.18 148 / 0.08);--lobrd:oklch(66% 0.18 148 / 0.40);
 }
 
-/* ── Dark Theme (default) ── */
+/* ── Dark Theme (default) ──
+   Warm charcoal rather than near-black, with a faint yellow undertone (hue 90) so the
+   default yellow accent sits in the same family. --accent-l / --accent-c let a colour
+   that needs more lightness to read as itself (yellow) override the 72% / 0.27 default. */
 [data-theme="dark"]{
-  --ab:oklch(8% 0.003 100);--p1:oklch(11% 0.004 100);--p2:oklch(13% 0.004 100);
-  --p3:oklch(16% 0.004 100);--bc:oklch(20% 0.004 100);
-  --t1:oklch(94% 0.005 100);--t2:oklch(64% 0.008 100);--t3:oklch(40% 0.007 100);
-  --accent:oklch(72% 0.27 var(--accent-h,136));--adim:oklch(72% 0.27 var(--accent-h,136) / 0.12);
-  --abrd:oklch(72% 0.27 var(--accent-h,136) / 0.28);
-  --aglow:0 0 0 1px var(--abrd),0 2px 12px oklch(72% 0.27 var(--accent-h,136) / 0.18);
+  --ab:oklch(15% 0.008 90);--p1:oklch(18% 0.009 90);--p2:oklch(20.5% 0.010 90);
+  --p3:oklch(24% 0.011 90);--bc:oklch(30% 0.012 90);
+  --t1:oklch(95% 0.008 95);--t2:oklch(72% 0.012 90);--t3:oklch(54% 0.012 90);
+  --accent:oklch(var(--accent-l,72%) var(--accent-c,0.27) var(--accent-h,136));--adim:oklch(var(--accent-l,72%) var(--accent-c,0.27) var(--accent-h,136) / 0.12);
+  --abrd:oklch(var(--accent-l,72%) var(--accent-c,0.27) var(--accent-h,136) / 0.28);
+  --aglow:0 0 0 1px var(--abrd),0 2px 12px oklch(var(--accent-l,72%) var(--accent-c,0.27) var(--accent-h,136) / 0.18);
   --shadow-xl:0 16px 40px rgba(0,0,0,.50),0 8px 16px rgba(0,0,0,.30);
 }
 /* ── Light Theme ── */
@@ -71,12 +74,12 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .sb>*{position:relative;z-index:1}
 .sb-top{padding:14px 14px 10px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 .sb-logo{display:flex;align-items:center;gap:8px}
-.sb-mark{width:26px;height:26px;border-radius:6px;background:var(--accent);display:flex;align-items:center;justify-content:center;box-shadow:0 0 10px oklch(72% 0.27 var(--accent-h,136) / 0.4)}
+.sb-mark{width:26px;height:26px;border-radius:6px;background:var(--accent);display:flex;align-items:center;justify-content:center;box-shadow:0 0 10px oklch(var(--accent-l,72%) var(--accent-c,0.27) var(--accent-h,136) / 0.4)}
 .sb-word{font-size:14px;font-weight:600;letter-spacing:.04em;color:var(--t1);font-family:var(--font-mono);text-transform:uppercase}
 .sb-theme{width:28px;height:28px;border-radius:6px;background:none;border:1px solid var(--bc);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--t2);transition:background 100ms,color 100ms}
 .sb-theme:hover{background:var(--p2);color:var(--t1)}
 .sb-compose{margin:0 8px 8px;display:flex;align-items:center;gap:7px;width:calc(100% - 16px);height:32px;padding:0 10px;border-radius:7px;background:var(--adim);border:1px solid var(--abrd);color:var(--accent);font-size:12.5px;font-weight:700;letter-spacing:.02em;transition:box-shadow 150ms,opacity 100ms;box-shadow:var(--aglow)}
-.sb-compose:hover{opacity:.8;box-shadow:0 0 0 1px var(--abrd),0 4px 18px oklch(72% 0.27 var(--accent-h,136) / 0.25)}
+.sb-compose:hover{opacity:.8;box-shadow:0 0 0 1px var(--abrd),0 4px 18px oklch(var(--accent-l,72%) var(--accent-c,0.27) var(--accent-h,136) / 0.25)}
 .sb-scroll{flex:1;overflow-y:auto;padding:0 6px 8px}
 .sb-sec{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);padding:10px 8px 4px;display:flex;align-items:center;gap:6px}
 .sb-sec::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,var(--bc),transparent)}
@@ -84,14 +87,14 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .sb-item{display:flex;align-items:center;gap:8px;height:32px;padding:0 8px 0 6px;border-radius:7px;cursor:pointer;font-size:12.5px;color:var(--t2);user-select:none;transition:background 120ms,color 120ms;position:relative;overflow:hidden;margin-bottom:1px}
 .sb-item::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2.5px;background:var(--accent);border-radius:0 2px 2px 0;opacity:0;transform:scaleY(0.2);transition:opacity 180ms,transform 220ms cubic-bezier(.34,1.56,.64,1)}
 .sb-item:hover{background:var(--p2);color:var(--t1)}
-.sb-item.active{background:linear-gradient(90deg,oklch(72% 0.27 var(--accent-h,136) / 0.10) 0%,transparent 85%);color:var(--t1);font-weight:600}
+.sb-item.active{background:linear-gradient(90deg,oklch(var(--accent-l,72%) var(--accent-c,0.27) var(--accent-h,136) / 0.10) 0%,transparent 85%);color:var(--t1);font-weight:600}
 .sb-item.active::before{opacity:1;transform:scaleY(1)}
 .sb-item-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sb-item-cnt{font-size:9.5px;font-weight:700;min-width:16px;height:16px;padding:0 5px;border-radius:99px;display:inline-flex;align-items:center;justify-content:center;background:var(--p3);color:var(--t3)}
-.sb-item.active .sb-item-cnt{background:var(--adim);color:var(--accent);border:1px solid var(--abrd);box-shadow:0 0 6px oklch(72% 0.27 var(--accent-h,136) / 0.2)}
+.sb-item.active .sb-item-cnt{background:var(--adim);color:var(--accent);border:1px solid var(--abrd);box-shadow:0 0 6px oklch(var(--accent-l,72%) var(--accent-c,0.27) var(--accent-h,136) / 0.2)}
 /* Colored folder icon badges */
 .sb-icon{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:box-shadow 150ms}
-.sb-icon-inbox {background:oklch(72% 0.27 var(--accent-h,136) / 0.14);box-shadow:0 0 0 1px oklch(72% 0.27 var(--accent-h,136) / 0.22);color:var(--accent)}
+.sb-icon-inbox {background:oklch(var(--accent-l,72%) var(--accent-c,0.27) var(--accent-h,136) / 0.14);box-shadow:0 0 0 1px oklch(var(--accent-l,72%) var(--accent-c,0.27) var(--accent-h,136) / 0.22);color:var(--accent)}
 .sb-icon-unread {background:oklch(68% 0.18 240 / 0.12);box-shadow:0 0 0 1px oklch(68% 0.18 240 / 0.20);color:oklch(68% 0.18 240)}
 .sb-icon-star   {background:oklch(72% 0.20 72  / 0.12);box-shadow:0 0 0 1px oklch(72% 0.20 72  / 0.20);color:oklch(72% 0.20 72)}
 .sb-icon-sent   {background:oklch(68% 0.16 200 / 0.10);box-shadow:0 0 0 1px oklch(68% 0.16 200 / 0.18);color:oklch(68% 0.16 200)}
@@ -100,7 +103,7 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .sb-icon-spam   {background:oklch(62% 0.22 22  / 0.14);box-shadow:0 0 0 1px oklch(62% 0.22 22  / 0.26);color:oklch(62% 0.22 22)}
 .sb-icon-bin    {background:oklch(48% 0.08 0   / 0.12);box-shadow:0 0 0 1px oklch(48% 0.08 0   / 0.20);color:oklch(55% 0.06 0)}
 /* Active item icon glow boost */
-.sb-item.active .sb-icon-inbox {box-shadow:0 0 0 1px oklch(72% 0.27 var(--accent-h,136) / 0.40),0 0 8px oklch(72% 0.27 var(--accent-h,136) / 0.20)}
+.sb-item.active .sb-icon-inbox {box-shadow:0 0 0 1px oklch(var(--accent-l,72%) var(--accent-c,0.27) var(--accent-h,136) / 0.40),0 0 8px oklch(var(--accent-l,72%) var(--accent-c,0.27) var(--accent-h,136) / 0.20)}
 .sb-item.active .sb-icon-unread{box-shadow:0 0 0 1px oklch(68% 0.18 240 / 0.40),0 0 8px oklch(68% 0.18 240 / 0.20)}
 .sb-item.active .sb-icon-star  {box-shadow:0 0 0 1px oklch(72% 0.20 72  / 0.40),0 0 8px oklch(72% 0.20 72  / 0.20)}
 .sb-item.active .sb-icon-sent  {box-shadow:0 0 0 1px oklch(68% 0.16 200 / 0.40),0 0 8px oklch(68% 0.16 200 / 0.20)}
@@ -260,7 +263,7 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .aip-suggest-ta::placeholder{color:var(--t3)}
 .aip-suggest-foot{display:flex;align-items:center;justify-content:flex-end;padding:4px 6px;border-top:1px solid var(--bc);gap:6px}
 .aip-suggest-btn{display:flex;align-items:center;gap:4px;height:24px;padding:0 10px;border-radius:6px;background:var(--adim);border:1px solid var(--abrd);color:var(--accent);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;transition:background 100ms}
-.aip-suggest-btn:hover{background:oklch(72% 0.27 var(--accent-h,136)/0.18)}
+.aip-suggest-btn:hover{background:oklch(var(--accent-l,72%) var(--accent-c,0.27) var(--accent-h,136)/0.18)}
 .aip-suggest-btn:disabled{opacity:.5;cursor:not-allowed}
 .aip-chip-loading{display:flex;align-items:center;gap:8px;color:var(--t3);font-size:11.5px;padding:4px 0}
 .aip-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;gap:8px;color:var(--t3);font-size:12px;padding:24px;text-align:center}
@@ -286,7 +289,7 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .rb-textarea::placeholder{color:var(--t3)}
 .rb-foot{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-top:1px solid var(--bc)}
 .rb-gen{display:flex;align-items:center;gap:5px;height:26px;padding:0 10px;border-radius:6px;background:var(--adim);border:1px solid var(--abrd);color:var(--accent);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;transition:background 100ms;white-space:nowrap}
-.rb-gen:hover{background:oklch(72% 0.27 var(--accent-h,136) / 0.18)}
+.rb-gen:hover{background:oklch(var(--accent-l,72%) var(--accent-c,0.27) var(--accent-h,136) / 0.18)}
 .rb-gen:disabled{opacity:.5;cursor:not-allowed}
 .rb-send{display:flex;align-items:center;gap:5px;height:28px;padding:0 14px;border-radius:6px;background:var(--accent);border:none;color:oklch(8% 0.003 100);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;transition:opacity 100ms}
 .rb-send:hover{opacity:.86}
@@ -369,7 +372,7 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .am-email-wrap{position:relative}
 .am-email-icon{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--t3);pointer-events:none}
 .am-email-input{width:100%;padding:12px 14px 12px 38px;border-radius:10px;border:1.5px solid var(--bc);background:var(--p1);color:var(--t1);font-family:inherit;font-size:14px;outline:none;transition:border-color 180ms,box-shadow 180ms}
-.am-email-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px oklch(72% 0.27 var(--accent-h,136) / 0.12)}
+.am-email-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px oklch(var(--accent-l,72%) var(--accent-c,0.27) var(--accent-h,136) / 0.12)}
 .am-email-input::placeholder{color:var(--t3)}
 /* Provider detection chip */
 .am-detect{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--t3);min-height:20px;padding:0 2px;transition:opacity 200ms}
@@ -377,7 +380,7 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .am-detect-logo{width:18px;height:18px;border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .am-detect-name{font-weight:600;color:var(--t2)}
 .am-detect-badge{margin-left:auto;font-size:9.5px;font-weight:700;padding:2px 8px;border-radius:99px;letter-spacing:.05em;text-transform:uppercase}
-.am-detect-badge.oauth{background:oklch(72% 0.27 var(--accent-h,136) / 0.14);color:var(--accent);border:1px solid var(--abrd)}
+.am-detect-badge.oauth{background:oklch(var(--accent-l,72%) var(--accent-c,0.27) var(--accent-h,136) / 0.14);color:var(--accent);border:1px solid var(--abrd)}
 .am-detect-badge.apppass{background:var(--p3);color:var(--t3);border:1px solid var(--bc)}
 .am-detect-badge.bridge{background:oklch(62% 0.22 22 / 0.12);color:oklch(62% 0.22 22);border:1px solid oklch(62% 0.22 22 / 0.30)}
 /* Divider with label */
@@ -386,7 +389,7 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 /* Provider connect card */
 .am-card{display:flex;align-items:center;gap:14px;padding:13px 15px;border-radius:11px;border:1.5px solid var(--bc);background:var(--p3);cursor:pointer;transition:all 140ms;text-decoration:none;color:inherit}
 .am-card:hover{border-color:var(--t3);background:var(--p2)}
-.am-card.primary{border-color:var(--abrd);background:linear-gradient(135deg,oklch(72% 0.27 var(--accent-h,136) / 0.07),transparent)}
+.am-card.primary{border-color:var(--abrd);background:linear-gradient(135deg,oklch(var(--accent-l,72%) var(--accent-c,0.27) var(--accent-h,136) / 0.07),transparent)}
 .am-card.primary:hover{border-color:var(--accent);box-shadow:var(--aglow)}
 .am-card-icon{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:18px}
 .am-card-text{flex:1}
@@ -445,6 +448,20 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 #welcome-banner .wb-btn.ghost{background:var(--p3);color:var(--t2);border:1px solid var(--bc)}
 #welcome-banner .wb-btn:hover{opacity:.85}
 #welcome-banner .wb-close{position:absolute;top:10px;right:10px;width:20px;height:20px;border-radius:4px;background:none;border:none;cursor:pointer;color:var(--t3);display:flex;align-items:center;justify-content:center}
+/* ── Update-ready card ── shares the welcome card's look (.wb-* children); sits bottom-right
+   so the two never overlap, one layer under #welcome-banner (998) and #toast (999). */
+#update-card{position:fixed;bottom:24px;right:24px;z-index:997;background:var(--p2);border:1px solid var(--abrd);border-radius:14px;padding:16px 20px;box-shadow:0 12px 40px rgba(0,0,0,.4);display:flex;align-items:flex-start;gap:14px;width:min(360px,calc(100vw - 48px));animation:slide-up 300ms cubic-bezier(.16,1,.3,1)}
+#update-card.hidden{display:none}
+#update-card .wb-icon{width:36px;height:36px;border-radius:9px;background:var(--adim);border:1px solid var(--abrd);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--accent)}
+#update-card .wb-body{flex:1;min-width:0}
+#update-card .wb-title{font-size:13px;font-weight:700;color:var(--t1);margin-bottom:4px}
+#update-card .wb-tips{font-size:11.5px;color:var(--t2);line-height:1.6;margin-bottom:10px}
+#update-card .wb-actions{display:flex;gap:8px}
+#update-card .wb-btn{height:26px;padding:0 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:none;font-family:inherit;transition:opacity 100ms}
+#update-card .wb-btn.primary{background:var(--accent);color:oklch(8% 0.003 100)}
+#update-card .wb-btn.ghost{background:var(--p3);color:var(--t2);border:1px solid var(--bc)}
+#update-card .wb-btn:hover{opacity:.85}
+#update-card .wb-btn:disabled{opacity:.5;cursor:default}
 /* ── Settings footer ── */
 .settings-footer{padding:10px 20px;border-top:1px solid var(--bc);font-size:11px;color:var(--t3);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:8px}
 .st-footer-actions{display:flex;gap:8px;align-items:center}
@@ -585,9 +602,9 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .acct-dot{width:14px;height:14px;border-radius:50%;border:2px solid var(--p2);flex-shrink:0;cursor:pointer;padding:0;opacity:0;transition:opacity 120ms,transform 100ms;box-sizing:border-box}
 .sb-item:hover .acct-dot{opacity:1}
 .acct-dot:hover{transform:scale(1.25)}
-.accent-pop{position:fixed;z-index:400;background:var(--p2);border:1px solid var(--bc);border-radius:10px;padding:10px;box-shadow:var(--shadow-xl);display:flex;flex-direction:column;gap:8px;width:172px}
+.accent-pop{position:fixed;z-index:400;background:var(--p2);border:1px solid var(--bc);border-radius:10px;padding:10px;box-shadow:var(--shadow-xl);display:flex;flex-direction:column;gap:8px;width:212px}
 .accent-pop-title{font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--t3)}
-.accent-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.accent-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
 .accent-swatch{width:30px;height:30px;border-radius:50%;cursor:pointer;border:2px solid transparent;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;transition:transform 100ms;box-sizing:border-box;padding:0}
 .accent-swatch:hover{transform:scale(1.12)}
 .accent-swatch.on{border-color:var(--t1)}
@@ -670,6 +687,11 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
       <svg width="16" height="16" viewBox="0 0 23 23"><path fill="#f3f3f3" d="M0 0h23v23H0z"/><path fill="#f35325" d="M1 1h10v10H1z"/><path fill="#81bc06" d="M12 1h10v10H12z"/><path fill="#05a6f0" d="M1 12h10v10H1z"/><path fill="#ffba08" d="M12 12h10v10H12z"/></svg>
       Sign in with Microsoft
     </a>
+    <button class="btn-auth" id="login-other-btn" type="button">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
+      Use another email
+    </button>
+    <p style="font-size:11px;color:var(--t3);margin-top:-.5rem">Yahoo, Zoho, iCloud, Fastmail, Proton or any IMAP mailbox</p>
     <p style="font-size:11px;color:var(--t3);font-family:var(--font-mono)">Your emails are only accessed when you use the app.</p>
   </div>
 </div>
@@ -1661,6 +1683,21 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
   </div>
 </div>
 
+<!-- ══ UPDATE-READY CARD (desktop app) ══ -->
+<div id="update-card" class="hidden" role="status" aria-live="polite">
+  <div class="wb-icon">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>
+  </div>
+  <div class="wb-body">
+    <div class="wb-title" id="uc-title">Update ready</div>
+    <div class="wb-tips">Restart Mailmind to finish installing — it takes a few seconds. If you skip it, it installs the next time you quit.</div>
+    <div class="wb-actions">
+      <button class="wb-btn primary" id="uc-restart">Restart now</button>
+      <button class="wb-btn ghost" id="uc-later">Later</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══ TOAST ══ -->
 <div id="toast">
   <span id="toast-icon" style="color:var(--lo)">✓</span>
@@ -1752,6 +1789,8 @@ function applyTheme(t) {
   S.theme = t;
   document.documentElement.dataset.theme = t;
   $('theme-toggle').innerHTML = t === 'dark' ? IC.sun : IC.moon;
+  // Mailboxes without a chosen colour change accent with the theme (yellow ↔ green).
+  if (S.activeAcctId) { applyAcctAccent(S.activeAcctId); renderSidebar(); }
 }
 $('theme-toggle').onclick = () => {
   const next = S.theme === 'dark' ? 'light' : 'dark';
@@ -1782,17 +1821,25 @@ const ACCENT_THEMES = [
   { id: 'pink',   name: 'Pink',   hue: 350, swatch: 'oklch(64% 0.23 350)' },
   { id: 'red',    name: 'Red',    hue: 25,  swatch: 'oklch(62% 0.22 25)'  },
   { id: 'amber',  name: 'Amber',  hue: 75,  swatch: 'oklch(70% 0.17 75)'  },
+  // Yellow only reads as yellow when bright, so it carries its own lightness/chroma
+  // (dark theme) and a dark checkmark — white on yellow is unreadable.
+  { id: 'yellow', name: 'Yellow', hue: 95,  swatch: 'oklch(86% 0.17 95)', l: '86%', c: 0.17, ink: 'oklch(20% 0.02 95)' },
 ];
 function loadAcctAccents() {
   try { return JSON.parse(localStorage.getItem('mm-acct-accents') || '{}'); } catch { return {}; }
 }
+// A mailbox with no colour picked follows the theme: black-and-yellow in dark, green
+// in light. A colour the user chose always wins.
 function getAcctAccent(acctId) {
   const map = loadAcctAccents();
-  return ACCENT_THEMES.find(t => t.id === map[acctId]) || ACCENT_THEMES[0];
+  const fallback = S.theme === 'dark' ? 'yellow' : 'green';
+  return ACCENT_THEMES.find(t => t.id === map[acctId]) || ACCENT_THEMES.find(t => t.id === fallback);
 }
 function applyAcctAccent(acctId) {
-  const t = getAcctAccent(acctId);
-  document.documentElement.style.setProperty('--accent-h', t.hue);
+  const t = getAcctAccent(acctId), root = document.documentElement.style;
+  root.setProperty('--accent-h', t.hue);
+  if (t.l) root.setProperty('--accent-l', t.l); else root.removeProperty('--accent-l');
+  if (t.c) root.setProperty('--accent-c', t.c); else root.removeProperty('--accent-c');
 }
 function setAcctAccent(acctId, themeId) {
   const map = loadAcctAccents();
@@ -1813,7 +1860,7 @@ function openAccentPicker(ev, acctId) {
   pop.innerHTML = '<div class="accent-pop-title">Mailbox colour</div>' +
     '<div class="accent-grid">' +
     ACCENT_THEMES.map(t =>
-      `<button class="accent-swatch${t.id === cur.id ? ' on' : ''}" style="background:${t.swatch}" title="${t.name}">${t.id === cur.id ? '✓' : ''}</button>`
+      `<button class="accent-swatch${t.id === cur.id ? ' on' : ''}" style="background:${t.swatch}${t.ink ? ';color:' + t.ink : ''}" title="${t.name}">${t.id === cur.id ? '✓' : ''}</button>`
     ).join('') +
     '</div>';
   pop.querySelectorAll('.accent-swatch').forEach((btn, i) => {
@@ -1826,7 +1873,7 @@ function openAccentPicker(ev, acctId) {
   document.body.appendChild(pop);
   // Position near the dot, clamped to viewport
   const r = ev.target.getBoundingClientRect();
-  const pw = 172, ph = 110;
+  const pw = pop.offsetWidth || 212, ph = pop.offsetHeight || 110;
   pop.style.left = Math.min(r.left, window.innerWidth - pw - 10) + 'px';
   pop.style.top  = Math.min(r.bottom + 6, window.innerHeight - ph - 10) + 'px';
   _accentPop = pop;
@@ -1988,9 +2035,19 @@ function categorizeRegex(email) {
   if ((email.categories||[]).some(function(x){return /work|project|hr|jira/i.test(x);}))           return {cat:'work', confident:true};
   if ((email.categories||[]).some(function(x){return /promo|market|newsletter|offer/i.test(x);}))  return {cat:'promotional', confident:true};
 
-  // 1. SECURITY - OTP, login alerts → treat as Work (no dedicated tab)
-  if (/otp|one.time.pass|two.factor|2fa|login.attempt|new.device.sign|account.locked|suspicious.activ|sign-?in.attempt|verify.your.email|password.reset|authentication.code|security.alert|unusual.activ|new.sign.?in|ekyc/i.test(all)
-    || /security@|alerts@/.test(sender) || /donotreply@.*bank|noreply@.*bank|noreply@.*pay/.test(sender))
+  // Marketing language. Gates the loose Finance/Orders clauses below so a "₹199/mo" or
+  // "₹1500 vouchers" promo isn't filed as a bank mail or an order.
+  const promo = /\d+\s*%\s*(off|discount|cashback)|cashback|voucher|coupon|promo.code|use.code|special.offer|limited.offer|today.only|ends.tonight|last.chance|don.?t.miss|festive.sale|flash.sale|shop.now|save.on|free.trial|\d+.days?.free|completely.free/i.test(subj + ' ' + snip)
+    || /^[^<@]*\b(offers?|deals|promotions?)\b/.test(sender);
+  // Sent by a mailing system rather than a person — only then may promo wording alone
+  // make an email a Promo (a colleague writing "we can save on shipping" must not).
+  const massSender = email.isBulk || /no-?reply|newsletter|marketing|offers?@|deals@|@(mail|e|em|email|emails|news|info|mailer)\./.test(sender)
+    || /^[^<@]*\b(offers?|deals|promotions?)\b/.test(sender);
+
+  // 1. SECURITY - OTP, login alerts → treat as Work (no dedicated tab). Keyword-only:
+  // a bank's alerts@ address carries transaction alerts, which belong in Finance.
+  if (/\botp\b|one.time.pass|two.factor|\b2fa\b|login.attempt|new.device.sign|account.locked|suspicious.activ|sign-?in.attempt|verify.your.email|password.reset|authentication.code|security.alert|unusual.activ|new.sign.?in|\bekyc\b/i.test(all)
+    || /security@/.test(sender))
     return {cat:'work', confident:true};
 
   // 2. GOVERNMENT - .gov.in, IRCTC, EPFO, UIDAI, NSDL → treat as Work
@@ -1998,20 +2055,24 @@ function categorizeRegex(email) {
     || /itr.filed|itr.refund|\bitr\b|assessment.year|pnr.no|\bpnr\b|e-?ticket|irctc.booking|epf.withdrawal|\buan\b|uan.passbook|aadhaar.update|digilocker|jan.dhan|notice.under.section|form.26as|ais.statement|traces.refund|income.tax.return|gst.notice|demand.notice|intimation.under.section/i.test(all))
     return {cat:'work', confident:true};
 
-  // 3. FINANCIAL - banks, UPI, investments, invoices
-  if (/sbi\.co\.in|hdfcbank|icicibank|axisbank|kotakbank|pnb\.co\.in|bankofbaroda|idfcfirstbank|yesbank|phonepe|gpay\.com|paytm|bhim|razorpay|instamojo|stripe|paypal|zerodha|groww\.in|upstox|angelone|quickbooks|xero|zoho\.books/.test(dom)
-    || /sbi|hdfc|icici|axis.bank|kotak|phonepe|gpay|paytm|bhim|razorpay|instamojo|zerodha|groww|upstox|angel.one/.test(sender)
-    || /upi |neft|rtgs|imps|nach|debited|credited|transaction.id|emi |loan.statement|interest.rate|outstanding.amount|account.balance|form.16|tds.certif|gst.invoice|mutual.fund| sip |nav |folio.no|portfolio.value|invoice|payment.due|overdue|wire.transfer|salary.credit|payslip|ctc /i.test(all)
-    || /[₹$]\s*\d|account.xxxx|card.ending|account.no.*\d{4}/i.test(all))
+  // 3. FINANCIAL - banks, UPI, investments, invoices. Indian banks moved to *.bank.in;
+  // depositories/registrars/exchanges (NSDL, CDSL, KFintech, CAMS, BSE…) send the
+  // dividend, results and e-voting notices that come with holding shares and funds.
+  if (/sbi\.co\.in|hdfcbank|icicibank|axisbank|kotakbank|pnb\.co\.in|bankofbaroda|idfcfirstbank|yesbank|\.bank\.in$|phonepe|gpay\.com|paytm|bhim|razorpay|instamojo|stripe|paypal|zerodha|groww\.in|upstox|angelone|quickbooks|xero|zoho\.books|nsdl\.com$|cdslindia|bseindia|nseindia|kfintech|camsonline|linkintime|bigshareonline|mfcentral/.test(dom)
+    || /sbi|hdfc|icici|axis.bank|kotak|phonepe|gpay|paytm|bhim|razorpay|instamojo|zerodha|groww|upstox|angel.one|mutual.fund|asset.management/.test(sender)
+    || /dividend|e-?voting|postal.ballot|financial.results|demat|shareholder|record.date|\bagm\b|ipo.allotment/i.test(subj)
+    || !promo && /upi |neft|rtgs|\bimps\b|\bnach\b|debited|credited|transaction.id|emi |loan.statement|interest.rate|outstanding.amount|account.balance|form.16|tds.certif|gst.invoice|mutual.fund| sip |nav |folio.no|portfolio.value|invoice|payment.due|overdue|wire.transfer|salary.credit|payslip|ctc /i.test(all)
+    // A bare amount is weak evidence — marketing is full of prices — so not in bulk mail.
+    || !promo && !email.isBulk && /[₹$]\s*\d|account.xxxx|card.ending|account.no.*\d{4}/i.test(all))
     return {cat:'financial', confident:true};
 
-  // 4. WORK / PROFESSIONAL - tools, job portals, office keywords
-  if (/workday|bamboohr|greenhouse|atlassian|jira|asana|notion|github|gitlab|bitbucket|slack|confluence|trello|monday\.com|freshdesk|zoho\.com|naukri|internshala|apna\.co|instahyre|linkedin\.com/i.test(sender)
+  // 4. WORK / PROFESSIONAL - tools, infrastructure alerts, office keywords
+  if (/workday|bamboohr|greenhouse|atlassian|jira|asana|notion|github|gitlab|bitbucket|slack|confluence|trello|monday\.com|freshdesk|zoho\.com|notify\.cloudflare\.com|uptimerobot|statuspage|sentry\.io|pagerduty/i.test(sender)
     || /offer.letter|annual.ctc|appraisal|increment|payslip|pf.account|esic|joining.date|relieving.letter|meeting.agenda|action.item|deliverable|milestone|project.proposal|performance.review|kpi|okr|please.revert|do.the.needful|as.discussed|per.our.call|follow.up.*meeting|wfh|work.from.home|pull.request|code.review|sprint|standup|deployment/i.test(all))
     return {cat:'work', confident:true};
 
-  // 5. SHOPPING / ORDERS - e-commerce, delivery
-  if (/flipkart|amazon\.in|meesho|myntra|nykaa|ajio|snapdeal|bigbasket|blinkit|zepto|jiomart|ebay|etsy|shopify/i.test(sender)
+  // 5. SHOPPING / ORDERS - e-commerce, delivery (a retailer's sale mail is a promo, not an order)
+  if (!promo && /flipkart|amazon\.in|meesho|myntra|nykaa|ajio|snapdeal|bigbasket|blinkit|zepto|jiomart|ebay|etsy|shopify/i.test(sender)
     || /order.confirm|order.placed|order.shipped|out.for.delivery|delivered.success|has.been.delivered|delivery.by|your.package|tracking.number|estimated.delivery|delhivery|bluedart|ekart|dtdc|cash.on.delivery|cod |return.request|replacement.init|refund.initiat|dispatched|shipment.detail|track.your.order/i.test(all))
     return {cat:'shopping', confident:true};
 
@@ -2022,14 +2083,27 @@ function categorizeRegex(email) {
 
   // 7. NEWSLETTER / SUBSCRIPTIONS → merge into Promos
   if (/substack\.com|mailchimp|convertkit|beehiiv|constantcontact|sendgrid|theken\.com|theken\.co|finshots\.in|morningcontext|moneycontrol|economictimes|livemint|theprint|thewire|scroll\.in/i.test(sender)
-    || /morning.digest|weekly.wrap|today.s.briefing|newsletter|bulletin|roundup|this.week|morning.brief|daily.brief|issue.#|view.in.browser|you.?re.receiving.this|manage.your.subscri|unsubscribe.here/i.test(all))
+    || /morning.digest|weekly.wrap|today.s.briefing|newsletter|bulletin|roundup|this.week|morning.brief|daily.brief|issue.#|view.this.issue|view.in.browser|you.?re.receiving.this|manage.your.subscri|unsubscribe.here/i.test(all))
+    return {cat:'promotional', confident:true};
+
+  // 7b. JOB ALERTS & SOCIAL DIGESTS - subscription mail → Promos. A direct LinkedIn
+  // message or invitation is left uncertain so the AI can judge it.
+  if ((/linkedin\.com|naukri|internshala|apna\.co|instahyre|timesjobs|bebee|indeed\.com|foundit|glassdoor/i.test(sender)
+       || /job.?alert|new.job|job.opportunit|postings.matching|jobs.matching|jobs.for.you/i.test(all))
+      && !/sent.you.a.message|messaged.you|new.message|inmail|invit/i.test(subj))
     return {cat:'promotional', confident:true};
 
   // 8. PROMOTIONS / MARKETING - offers, discounts, festive sales
   if (/zomato\.com|swiggy\.com|ola\.com|uber\.com|makemytrip\.com|yatra\.com|goibibo|cleartrip|jio\.com|airtel\.in|vi\.in|bsnl|offers@|deals@|marketing@|promo@|promotions@/i.test(sender)
     || /\d+\s*%\s*(off|discount)|cashback|coupon.code|use.code|flat.\u20B9|upto.\u20B9|limited.offer|today.only|don.?t.miss|festive.sale|big.billion|great.indian.sale|end.of.reason|flash.sale|shop.now|claim.your.offer|expires.soon|black.friday|recharge.offer|data.pack|promo.code/i.test(all)
-    || /no-?reply@|noreply@/.test(sender) && /offer|deal|sale|discount|promo/i.test(subj))
+    || /no-?reply@|noreply@/.test(sender) && /offer|deal|sale|discount|promo/i.test(subj)
+    || promo && massSender)
     return {cat:'promotional', confident:true};
+
+  // Mass-mailed (List-Unsubscribe / Precedence: bulk) with no work, finance or order
+  // signal above — almost always marketing or a newsletter. Still uncertain, so the AI
+  // can overrule it.
+  if (email.isBulk) return {cat:'promotional', confident:false};
 
   // Default — uncertain, eligible for AI batch classification
   return {cat:'work', confident:false};
@@ -3887,7 +3961,7 @@ document.addEventListener('click', e => {
   );
 });
 
-$('add-account-btn').onclick = () => {
+$('add-account-btn').onclick = $('login-other-btn').onclick = () => {
   $('am-email').value = '';
   $('am-detect').classList.add('hidden');
   $('am-auth').classList.add('hidden');
@@ -5054,7 +5128,7 @@ $('compose-btn').onclick = () => openCompose();
      'mm-replymode','mm-default-tone','mm-sendconfirm','mm-ai-auto','mm-priority',
      'mm-groq-key','mm-signature','mm-signatures','mm-acct-accents','mm-panels','mm-rb-height', ...aiKeys].forEach(k => lsDel(k));
     applyTheme('light');
-    document.documentElement.style.removeProperty('--accent-h');
+    ['--accent-h', '--accent-l', '--accent-c'].forEach(p => document.documentElement.style.removeProperty(p));
     applyDensity('normal');
     applyFontSize(13);
     applyChips(true); refreshChipStyle();
@@ -5093,17 +5167,42 @@ $('compose-btn').onclick = () => openCompose();
       updateBtn.style.display  = showInstall ? 'none' : '';
     }
 
-    // Listen for status events pushed from main process
-    window.electronAPI.onUpdateStatus(({ status, message }) => {
+    // Update-ready card: shown once an update has downloaded, so people who never open
+    // Settings still find out. "Later" hides it for this version until the next launch.
+    const card = document.getElementById('update-card');
+    let cardDismissedFor = null;
+    function showUpdateCard(version) {
+      if (!card || (version && cardDismissedFor === version)) return;
+      document.getElementById('uc-title').textContent = 'Mailmind ' + (version ? 'v' + version + ' ' : '') + 'is ready to install';
+      card.classList.remove('hidden');
+      card.dataset.version = version || '';
+    }
+    document.getElementById('uc-restart').onclick = e => {
+      e.currentTarget.disabled = true;
+      e.currentTarget.textContent = 'Restarting…';
+      window.electronAPI.installUpdate();
+    };
+    document.getElementById('uc-later').onclick = () => {
+      cardDismissedFor = card.dataset.version || null;
+      card.classList.add('hidden');
+    };
+
+    function applyUpdateStatus({ status, message, version }) {
       switch (status) {
         case 'checking':   setUpdateStatus('Checking for updates…', false); updateBtn.disabled = true;  break;
         case 'available':  setUpdateStatus(message, false); updateBtn.disabled = true;  break;
         case 'progress':   setUpdateStatus(message, false); updateBtn.disabled = true;  break;
         case 'latest':     setUpdateStatus('You\'re on the latest version.', false); updateBtn.disabled = false; break;
-        case 'downloaded': setUpdateStatus(message, true);  updateBtn.disabled = true;  break;
+        case 'downloaded': setUpdateStatus(message, true);  updateBtn.disabled = true; showUpdateCard(version); break;
         case 'error':      setUpdateStatus('Error: ' + message, false); updateBtn.disabled = false; break;
       }
-    });
+    }
+
+    // Listen for status events pushed from main process…
+    window.electronAPI.onUpdateStatus(applyUpdateStatus);
+    // …and catch up on one that happened before this page loaded (e.g. the download
+    // finished while the window was hidden in the tray, or the page was reloaded).
+    window.electronAPI.getUpdateStatus?.().then(s => { if (s) applyUpdateStatus(s); }).catch(() => {});
 
     updateBtn.onclick = () => {
       updateBtn.disabled = true;
