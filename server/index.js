@@ -1073,8 +1073,16 @@ app.get("/auth/microsoft/callback", async (req, res) => {
       imapHost: "outlook.office365.com",  imapPort: 993,  imapSecure: true,
       smtpHost: "smtp.office365.com",     smtpPort: 587,  // 587 = STARTTLS
     };
-    store.upsertMicrosoft(email, creds);
+    const contactsFlow = req.session.msContactsImport;
+    delete req.session.msContactsImport;
+    const id = store.upsertMicrosoft(email, creds);
     console.log("Microsoft account connected:", email);
+    if (contactsFlow) {
+      // This was the one-time Contacts.Read consent, not a new sign-in: put the
+      // user back on the mailbox they were reading and let the page resume the import.
+      if (contactsFlow.prevActiveId && contactsFlow.prevActiveId !== id) store.setActive(contactsFlow.prevActiveId);
+      return res.redirect("/?outlookContacts=" + id);
+    }
     res.redirect("/");
   } catch (e) {
     console.error("Microsoft OAuth callback error:", e.message);
@@ -1786,10 +1794,113 @@ app.get("/api/contacts", withAuth, (req, res) => {
     const out = store.searchContacts(q, limit + self.size)
       .filter(c => !self.has(c.email))
       .slice(0, limit);
-    res.json({ contacts: out });
+    let groups = [];
+    try { groups = store.searchGroups(q); } catch {}
+    res.json({ contacts: out, groups });
   } catch (e) {
     res.json({ contacts: [] });
   }
+});
+
+// ── Address book import ───────────────────────────────────────────────────────
+// The browser parses the CSV / vCard file and posts plain { name, email } rows,
+// in chunks, so no file upload handling is needed here.
+app.get("/api/contacts/stats", withAuth, (req, res) => {
+  try { res.json(store.contactCounts()); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/contacts/import", withAuth, (req, res) => {
+  const list = Array.isArray(req.body?.contacts) ? req.body.contacts : null;
+  if (!list) return res.status(400).json({ error: "contacts array required" });
+  if (list.length > 5000) return res.status(413).json({ error: "Send at most 5000 contacts per request" });
+  try { res.json(store.importContacts(list)); }
+  catch (e) { console.error("Contacts import error:", e.message); res.status(500).json({ error: e.message }); }
+});
+
+// Outlook address book. Normal sign-in deliberately does NOT ask for Contacts.Read:
+// adding it to MS_SCOPES would make every existing user's token refresh fail until
+// they re-consented. Instead this asks for a Contacts-only token on demand; if the
+// user hasn't granted it yet, the client is sent through /auth/microsoft/contacts once.
+const MS_CONTACTS_SCOPE = "https://graph.microsoft.com/Contacts.Read offline_access";
+
+app.post("/api/contacts/import/outlook", withAuth, async (req, res) => {
+  const accountId = parseInt(req.body?.outlookAccountId);
+  const acc = accountId ? store.getAccount(accountId, true) : null;
+  if (!acc || acc.type !== "microsoft" || !acc.secret?.refreshToken)
+    return res.status(400).json({ error: "Pick a connected Outlook mailbox" });
+  let token;
+  try {
+    const data = await msPost({
+      grant_type: "refresh_token",
+      client_id: process.env.MICROSOFT_CLIENT_ID,
+      ...(process.env.MICROSOFT_CLIENT_SECRET ? { client_secret: process.env.MICROSOFT_CLIENT_SECRET } : {}),
+      refresh_token: acc.secret.refreshToken,
+      scope: MS_CONTACTS_SCOPE,
+    });
+    token = data.access_token;
+    // Refresh tokens rotate; keep the newest. The access token is left alone — this
+    // one is scoped to contacts only and must not replace the mail token.
+    if (data.refresh_token) store.updateSecret(acc.id, { ...acc.secret, refreshToken: data.refresh_token }, acc.email);
+  } catch (e) {
+    // Not granted yet. Microsoft answers a refresh for an un-consented scope with
+    // AADSTS70000 ("scopes requested are unauthorized") — seen live — or 65001.
+    if (/AADSTS70000|AADSTS65001|consent|invalid_grant|interaction_required|scopes requested are unauthorized/i.test(e.message))
+      return res.json({ needsConsent: true, url: "/auth/microsoft/contacts?accountId=" + acc.id });
+    console.error("Outlook contacts token error:", e.message);
+    return res.status(502).json({ error: "Couldn't get access to Outlook contacts: " + e.message });
+  }
+  try {
+    const people = await graph.listContacts(token);
+    const result = store.importContacts(people);
+    console.log(`Outlook contacts import (${acc.email}): ${people.length} addresses →`, JSON.stringify(result));
+    res.json({ ...result, found: people.length });
+  } catch (e) {
+    console.error("Outlook contacts import error:", e.message);
+    res.status(502).json({ error: "Reading Outlook contacts failed: " + e.message });
+  }
+});
+
+// One-time consent screen for Contacts.Read. Reuses the registered
+// /auth/microsoft/callback redirect URI; the session flag tells the callback
+// to restore the previously active mailbox and resume the import.
+app.get("/auth/microsoft/contacts", (req, res) => {
+  const acc = store.getAccount(parseInt(req.query.accountId));
+  if (!acc || acc.type !== "microsoft") return res.redirect("/?error=" + encodeURIComponent("Outlook mailbox not found"));
+  const redirectUri = process.env.MICROSOFT_REDIRECT_URI || localOrigin() + "/auth/microsoft/callback";
+  const pkce = generatePkcePair();
+  req.session.msPkceVerifier = pkce.verifier;
+  req.session.msContactsImport = { accountId: acc.id, prevActiveId: store.listAccounts().find(a => a.active)?.id || null };
+  const params = new URLSearchParams({
+    client_id: process.env.MICROSOFT_CLIENT_ID,
+    response_type: "code",
+    redirect_uri: redirectUri,
+    scope: MS_SCOPES + " https://graph.microsoft.com/Contacts.Read",
+    response_mode: "query",
+    login_hint: acc.email,
+    code_challenge: pkce.challenge,
+    code_challenge_method: "S256",
+  });
+  res.redirect(MS_TENANT_URL + "/authorize?" + params.toString());
+});
+
+// ── Contact groups ────────────────────────────────────────────────────────────
+function groupMembersFromBody(body) {
+  return Array.isArray(body?.members) ? body.members.slice(0, 2000) : [];
+}
+app.get("/api/contact-groups", withAuth, (req, res) => {
+  try { res.json({ groups: store.listGroups() }); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/contact-groups", withAuth, (req, res) => {
+  try { res.json({ group: store.saveGroup(null, req.body?.name, groupMembersFromBody(req.body)) }); }
+  catch (e) { res.status(e.code === "duplicate" || e.code === "invalid" ? 400 : 500).json({ error: e.message }); }
+});
+app.put("/api/contact-groups/:id", withAuth, (req, res) => {
+  try { res.json({ group: store.saveGroup(parseInt(req.params.id), req.body?.name, groupMembersFromBody(req.body)) }); }
+  catch (e) { res.status(e.code === "missing" ? 404 : e.code ? 400 : 500).json({ error: e.message }); }
+});
+app.delete("/api/contact-groups/:id", withAuth, (req, res) => {
+  try { store.deleteGroup(parseInt(req.params.id)); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post("/api/send", withAuth, async (req, res) => {

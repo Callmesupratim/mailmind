@@ -126,7 +126,36 @@ function buildListPath(folder, skip, filter, search) {
   return path;
 }
 
+// Follow @odata.nextLink pages (absolute URLs) back into graphRequest's /v1.0 paths.
+async function gGetAll(token, path, maxPages = 50) {
+  const out = [];
+  for (let p = path, n = 0; p && n < maxPages; n++) {
+    const data = await gGet(token, p);
+    out.push(...(data.value || []));
+    p = data["@odata.nextLink"] ? data["@odata.nextLink"].replace(/^https:\/\/graph\.microsoft\.com\/v1\.0/, "") : null;
+  }
+  return out;
+}
+
 module.exports = {
+  // ── Address book (needs the Contacts.Read scope) ──────────────────────────────
+  // The default Contacts folder plus any user-made folders. Returns [{ name, email }],
+  // one entry per address — a contact with three addresses yields three.
+  async listContacts(token) {
+    const sel = "$select=displayName,emailAddresses&$top=500";
+    const people = await gGetAll(token, `/me/contacts?${sel}`);
+    let folders = [];
+    try { folders = await gGetAll(token, "/me/contactFolders?$select=id&$top=100"); } catch {}
+    for (const f of folders) {
+      try { people.push(...await gGetAll(token, `/me/contactFolders/${encodeURIComponent(f.id)}/contacts?${sel}`)); } catch {}
+    }
+    const out = [];
+    for (const c of people)
+      for (const a of c.emailAddresses || [])
+        if (a.address) out.push({ name: c.displayName || a.name || "", email: a.address });
+    return out;
+  },
+
   // ── List a page of emails ───────────────────────────────────────────────────
   async list(token, selfEmail, { q = "in:inbox", pageToken } = {}) {
     let folder = "inbox", filter = null, search = null;

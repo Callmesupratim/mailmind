@@ -541,6 +541,7 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .ac-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;user-select:none}
 .ac-item.on,.ac-item:hover{background:var(--p3)}
 .ac-av{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:700;flex-shrink:0}
+.ac-av-grp{background:var(--adim);color:var(--accent);border:1px solid var(--abrd)}
 .ac-txt{min-width:0;display:flex;flex-direction:column;line-height:1.25}
 .ac-name{font-size:12.5px;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ac-mail{font-size:11px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -657,6 +658,29 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 .st-danger-btn:hover{background:var(--hibg)}
 .st-ok-btn{height:28px;padding:0 14px;border-radius:7px;border:none;color:oklch(8% 0.003 100);background:var(--accent);font-family:inherit;font-size:12px;cursor:pointer;transition:opacity 100ms}
 .st-ok-btn:hover{opacity:.85}
+.st-ok-btn:disabled{opacity:.5;cursor:default}
+/* Contacts & groups */
+.st-ghost-btn{height:28px;padding:0 12px;border-radius:7px;border:1px solid var(--bc);color:var(--t1);background:var(--p2);font-family:inherit;font-size:12px;cursor:pointer}
+.st-ghost-btn:hover{background:var(--p3)}
+.st-subhead{display:flex;align-items:center;justify-content:space-between;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--t3);padding:18px 0 8px;border-top:1px solid var(--bc);margin-top:4px}
+.ct-status{font-size:12px;color:var(--t2);line-height:1.5;padding:10px 12px;margin:10px 0 2px;border-radius:8px;background:var(--p2);border:1px solid var(--bc)}
+.ct-status:empty{display:none}
+.ct-status.err{color:var(--hi);border-color:var(--hibrd);background:var(--hibg)}
+.ct-grp{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--bc)}
+.ct-grp:last-child{border-bottom:none}
+.ct-grp-ico{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--adim);color:var(--accent);border:1px solid var(--abrd)}
+.ct-grp-txt{flex:1;min-width:0}
+.ct-grp-name{font-size:13px;font-weight:600;color:var(--t1)}
+.ct-grp-sub{font-size:11.5px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ct-empty{font-size:12px;color:var(--t3);padding:10px 0}
+.ct-editor{display:flex;flex-direction:column;gap:10px;padding:14px;margin:4px 0 8px;border-radius:10px;background:var(--p2);border:1px solid var(--bc)}
+.ct-editor label{font-size:11.5px;font-weight:600;color:var(--t2);display:flex;flex-direction:column;gap:5px}
+.ct-editor .st-input{width:100%;font-family:inherit;font-size:12.5px;background:var(--p1)}
+.ct-editor textarea.st-input{height:auto;min-height:84px;padding:8px 10px;resize:vertical;line-height:1.5}
+.ct-editor-foot{display:flex;align-items:center;gap:8px}
+.ct-editor-hint{flex:1;font-size:11px;color:var(--t3)}
+.ct-err{font-size:11.5px;color:var(--hi)}
+.ct-err:empty{display:none}
 /* Density */
 [data-density="compact"] .er{padding:5px 10px}
 [data-density="compact"] .er-badge{width:28px;height:28px;font-size:10px}
@@ -1238,6 +1262,10 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M2 12l2-2 8-8 2 2-8 8-2 2-2-2z"/></svg>
         Compose &amp; Reply
       </button>
+      <button class="settings-nav-item" data-sec="contacts">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 14c0-2.5 2-4.5 4.5-4.5s4.5 2 4.5 4.5"/><path d="M10.5 3.2a2.5 2.5 0 0 1 0 4.6M12 9.8c1.5.6 2.5 2.2 2.5 4.2"/></svg>
+        Contacts
+      </button>
       <button class="settings-nav-item" data-sec="ai">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 1l1.2 5.8L15 8l-5.8 1.2L8 15l-1.2-5.8L1 8l5.8-1.2z"/></svg>
         AI Features
@@ -1508,6 +1536,47 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
             <button class="st-danger-btn" id="st-reset-rb">Reset to default</button>
           </div>
         </div>
+      </div>
+
+      <!-- CONTACTS & GROUPS — changes here save immediately (no Save button needed) -->
+      <div class="settings-sec" id="st-sec-contacts">
+        <div class="st-sec-title">Contacts &amp; Groups</div>
+        <div class="st-sec-desc">Mailmind already learns addresses from your mail. Import an address book to add people you haven't emailed yet, and make groups to address several people at once. Changes here save straight away.</div>
+
+        <div class="st-row">
+          <div class="st-info">
+            <div class="st-label">Import from a file</div>
+            <div class="st-desc">A CSV or vCard (.vcf) file exported from Gmail, Outlook, Zoho, Yahoo, iCloud or your phone. For Gmail: contacts.google.com → Export → vCard.</div>
+          </div>
+          <div class="st-control">
+            <input type="file" id="ct-file" accept=".csv,.vcf,.vcard,text/csv,text/vcard,text/x-vcard" hidden>
+            <button class="st-ok-btn" id="ct-file-btn">Choose file…</button>
+          </div>
+        </div>
+        <div class="st-row" id="ct-outlook-row" style="display:none">
+          <div class="st-info">
+            <div class="st-label">Import from Outlook</div>
+            <div class="st-desc">Copies the address book of a connected Outlook mailbox. The first time, Microsoft asks you to allow access to your contacts.</div>
+          </div>
+          <div class="st-control">
+            <select class="st-input" id="ct-outlook-acct" style="width:auto;max-width:190px;font-family:inherit"></select>
+            <button class="st-ok-btn" id="ct-outlook-btn">Import</button>
+          </div>
+        </div>
+        <div class="ct-status" id="ct-status"></div>
+
+        <div class="st-subhead"><span>Groups</span><button class="st-ghost-btn" id="ct-new-grp" style="text-transform:none;letter-spacing:0;font-weight:500">+ New group</button></div>
+        <div class="ct-editor hidden" id="ct-editor">
+          <label>Group name<input class="st-input" id="ct-grp-name" maxlength="120" placeholder="e.g. Site Engineers" autocomplete="off"></label>
+          <label>Members<textarea class="st-input" id="ct-grp-members" placeholder="Start typing a name or address…" autocomplete="off" spellcheck="false"></textarea></label>
+          <div class="ct-err" id="ct-grp-err"></div>
+          <div class="ct-editor-foot">
+            <span class="ct-editor-hint">Separate people with commas. Type a name to pick from your contacts.</span>
+            <button class="st-ghost-btn" id="ct-grp-cancel">Cancel</button>
+            <button class="st-ok-btn" id="ct-grp-save">Save group</button>
+          </div>
+        </div>
+        <div id="ct-groups"></div>
       </div>
 
       <!-- DATA & PRIVACY -->
@@ -3164,6 +3233,13 @@ const RecipAC = (() => {
   function render(q) {
     if (!items.length) { close(); return; }
     pop.innerHTML = items.map((c, i) => {
+      if (c.group) {
+        const n = c.members.length;
+        return `<div class="ac-item${i === act ? ' on' : ''}" data-i="${i}">
+          <div class="ac-av ac-av-grp"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 14c0-2.5 2-4.5 4.5-4.5s4.5 2 4.5 4.5"/><path d="M10.5 3.2a2.5 2.5 0 0 1 0 4.6M12 9.8c1.5.6 2.5 2.2 2.5 4.2"/></svg></div>
+          <div class="ac-txt"><div class="ac-name">${hl(c.name, q)}</div><div class="ac-mail">Group · ${n} ${n === 1 ? 'person' : 'people'}</div></div>
+        </div>`;
+      }
       const label = c.name || c.email;
       const [bg, fg] = nameColor(label);
       const sub = c.name ? `<div class="ac-mail">${hl(c.email, q)}</div>` : '';
@@ -3194,7 +3270,11 @@ const RecipAC = (() => {
     return fetch('/api/contacts?q=' + encodeURIComponent(q) + '&limit=8', { signal: ctl.signal })
       .then(r => r.ok ? r.json() : { contacts: [] })
       .then(j => {
-        const list = j.contacts || [];
+        // Groups first: typing a group's name is a deliberate choice of the whole list.
+        const list = [
+          ...(j.groups || []).map(g => ({ group: true, id: g.id, name: g.name, members: g.members || [] })),
+          ...(j.contacts || []),
+        ];
         cache.set(key, list);
         if (cache.size > 200) cache.clear();
         return { my, list };
@@ -3217,7 +3297,7 @@ const RecipAC = (() => {
     request(text).then(({ my, list }) => {
       if (my !== seq || curInput !== input) return;      // a newer keystroke won
       const skip = excluded(input, text);
-      items = list.filter(c => !skip.has(c.email));
+      items = list.filter(c => c.group || !skip.has(c.email));
       act = -1;
       render(text);
     });
@@ -3227,9 +3307,32 @@ const RecipAC = (() => {
     const c = items[i];
     if (!c || !curInput) return;
     const input = curInput;
-    const { start, end } = tokenRange(input);
-    const nm = c.name && /[",<>@]/.test(c.name) ? '"' + c.name.split('"').join("'") + '"' : c.name;
-    const addr = nm ? nm + ' <' + c.email + '>' : c.email;
+    const { start, end, text } = tokenRange(input);
+    const fmt = (name, email) => {
+      const nm = name && /[",<>@]/.test(name) ? '"' + name.split('"').join("'") + '"' : name;
+      return nm ? nm + ' <' + email + '>' : email;
+    };
+    // A group expands to its members, minus anyone already in this field and our
+    // own addresses — the user can still delete individuals before sending.
+    let addr;
+    if (c.group) {
+      const skip = excluded(input, text);
+      const add = c.members.filter(m => !skip.has(m.email));
+      if (!add.length) {
+        // Nothing to add — still clear the half-typed group name out of the field.
+        let head = input.value.slice(0, start);
+        if (/,$/.test(head)) head += ' ';
+        const tail = input.value.slice(end).replace(/^\s*,\s*/, '');
+        input.value = head + tail;
+        input.setSelectionRange(head.length, head.length);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        showToast('Everyone in ' + c.name + ' is already added');
+        close(); input.focus(); return;
+      }
+      addr = add.map(m => fmt(m.name, m.email)).join(', ');
+    } else {
+      addr = fmt(c.name, c.email);
+    }
     let head = input.value.slice(0, start);
     if (head && !/,\s*$/.test(head)) head += ', ';
     else if (head && !/\s$/.test(head)) head += ' ';
@@ -3290,14 +3393,337 @@ const RecipAC = (() => {
   document.addEventListener('mousedown', e => {
     if (!pop.classList.contains('hidden') && !e.target.closest('#ac-pop') && e.target !== curInput) close();
   });
-  document.addEventListener('scroll', () => close(), true);
+  // Scrolling the suggestion list itself (wheel, or ↓ past the visible rows) must
+  // not close it. When a container around the field scrolls — e.g. Settings
+  // smooth-scrolling the group editor into view right after it opened — follow
+  // the field, and close only once it has left the viewport.
+  document.addEventListener('scroll', e => {
+    if (pop.classList.contains('hidden') || !curInput) return;
+    if (e.target === pop || (e.target.nodeType === 1 && pop.contains(e.target))) return;
+    const r = curInput.getBoundingClientRect();
+    if (!r.width || r.bottom < 0 || r.top > window.innerHeight) close(); else place(curInput);
+  }, true);
   window.addEventListener('resize', () => close());
 
-  return { attach, close };
+  // Group edits change what a query should return.
+  function clearCache() { cache.clear(); }
+
+  return { attach, close, clearCache };
 })();
 
 ['rb-to', 'rb-cc', 'rb-bcc'].forEach(id => RecipAC.attach(id, { onPick: () => { _rbRecipDirty = true; } }));
 ['cm-to', 'cm-cc', 'cm-bcc'].forEach(id => RecipAC.attach(id));
+
+// ── Contacts: address-book import + groups (Settings → Contacts) ───────────────
+// Files are parsed here in the browser and posted as plain { name, email } rows,
+// so the server never handles uploads. Group edits save immediately — they don't
+// go through the Settings Save/Discard snapshot.
+const ContactsUI = (() => {
+  const EMAIL_RE = /[A-Z0-9._%+'-]+@[A-Z0-9-]+(?:\.[A-Z0-9-]+)*\.[A-Z]{2,}/ig;
+  const CHUNK = 2000;
+  let groups = [], editingId = null, busy = false;
+
+  // Exports come as UTF-8, UTF-16 (BOM) or — Outlook's "Windows" CSV — ANSI.
+  function decode(buf) {
+    const b = new Uint8Array(buf);
+    if (b[0] === 0xFF && b[1] === 0xFE) return new TextDecoder('utf-16le').decode(buf);
+    if (b[0] === 0xFE && b[1] === 0xFF) return new TextDecoder('utf-16be').decode(buf);
+    let t = new TextDecoder('utf-8').decode(buf);
+    if (t.includes('�')) t = new TextDecoder('windows-1252').decode(buf);
+    return t.replace(/^﻿/, '');
+  }
+
+  // vCard 2.1/3.0/4.0: unfold continuation lines, then FN (or N), EMAIL.
+  function parseVCard(text) {
+    const out = [];
+    const unesc = v => v.replace(/\\n/gi, ' ').replace(/\\([,;\\])/g, '$1').trim();
+    let cur = null;
+    for (const line of text.replace(/\r\n?/g, '\n').replace(/\n[ \t]/g, '').split('\n')) {
+      const m = line.match(/^(?:[\w-]+\.)?([A-Za-z-]+)((?:;[^:]*)?):(.*)$/);
+      if (!m) continue;
+      const key = m[1].toUpperCase(), val = m[3];
+      if (key === 'BEGIN' && /vcard/i.test(val)) cur = { fn: '', n: '', emails: [] };
+      else if (!cur) continue;
+      else if (key === 'END') { const name = cur.fn || cur.n; cur.emails.forEach(email => out.push({ name, email })); cur = null; }
+      else if (key === 'FN') cur.fn = unesc(val);
+      else if (key === 'N' && !cur.n) {
+        const [last, first, middle] = val.split(';').map(unesc);
+        cur.n = [first, middle, last].filter(Boolean).join(' ');
+      }
+      else if (key === 'EMAIL') { const e = unesc(val).replace(/^mailto:/i, ''); if (e.includes('@')) cur.emails.push(e); }
+    }
+    return out;
+  }
+
+  // RFC 4180: quoted fields may hold commas, doubled quotes and newlines.
+  // The delimiter is whichever of , ; tab is most common in the header line.
+  function csvRows(text) {
+    const nl = text.indexOf('\n');
+    const first = nl < 0 ? text : text.slice(0, nl);
+    const delim = [',', ';', '\t'].map(d => [d, first.split(d).length]).sort((a, b) => b[1] - a[1])[0][0];
+    const rows = []; let row = [], field = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) {
+        if (ch === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else q = false; }
+        else field += ch;
+      } else if (ch === '"') q = true;
+      else if (ch === delim) { row.push(field); field = ''; }
+      else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && text[i + 1] === '\n') i++;
+        row.push(field); field = '';
+        if (row.some(c => c.trim())) rows.push(row);
+        row = [];
+      } else field += ch;
+    }
+    row.push(field);
+    if (row.some(c => c.trim())) rows.push(row);
+    return rows;
+  }
+
+  // Google ("E-mail 1 - Value", "First Name"), Outlook ("E-mail Address",
+  // "E-mail 2 Address"), Yahoo/Zoho/generic ("Email", "Name"). With no
+  // recognisable header, every cell is scanned for addresses.
+  function parseCSV(text) {
+    const rows = csvRows(text);
+    if (!rows.length) return [];
+    const head = rows[0].map(h => h.trim().toLowerCase());
+    const emailCols = head.map((h, i) => /e-?mail/.test(h) && !/type|label|display|sensitivity/.test(h) ? i : -1).filter(i => i >= 0);
+    const col = (...names) => head.findIndex(h => names.includes(h));
+    const nameI = col('name', 'full name', 'display name', 'display_name', 'fullname');
+    const firstI = col('first name', 'given name', 'firstname', 'first');
+    const midI = col('middle name', 'additional name');
+    const lastI = col('last name', 'family name', 'surname', 'lastname', 'last');
+    const out = [];
+    for (const row of emailCols.length ? rows.slice(1) : rows) {
+      const get = i => (i >= 0 ? row[i] || '' : '').trim();
+      const name = get(nameI) || [get(firstI), get(midI), get(lastI)].filter(Boolean).join(' ');
+      for (const cell of emailCols.length ? emailCols.map(i => row[i]) : row)
+        for (const email of String(cell || '').match(EMAIL_RE) || []) out.push({ name, email });
+    }
+    return out;
+  }
+
+  function setStatus(html, err) {
+    const el = $('ct-status');
+    el.innerHTML = html || '';
+    el.classList.toggle('err', !!err);
+  }
+  function plural(n, one, many) { return n.toLocaleString() + ' ' + (n === 1 ? one : many); }
+  function summary(r) {
+    const parts = [plural(r.added, 'new contact', 'new contacts')];
+    if (r.updated) parts.push(r.updated.toLocaleString() + ' already saved (names refreshed)');
+    if (r.skipped) parts.push(r.skipped.toLocaleString() + ' skipped (duplicate or not a valid address)');
+    return parts.join(' · ');
+  }
+  async function refreshCounts(prefix) {
+    try {
+      const c = await fetch('/api/contacts/stats').then(r => r.json());
+      if (c.total == null) return;
+      const line = 'Your address book has ' + plural(c.total, 'person', 'people')
+        + (c.saved ? ', ' + plural(c.saved, 'saved from an import', 'saved from imports') + '.' : '.');
+      setStatus(prefix ? prefix + '<br>' + esc(line) : esc(line));
+    } catch {}
+  }
+
+  async function importRows(rows, label) {
+    const total = { added: 0, updated: 0, skipped: 0 };
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      setStatus('Importing ' + esc(label) + '… ' + Math.min(i + CHUNK, rows.length).toLocaleString() + ' of ' + rows.length.toLocaleString());
+      const r = await fetch('/api/contacts/import', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contacts: rows.slice(i, i + CHUNK) }),
+      }).then(r => r.json());
+      if (r.error) throw new Error(r.error);
+      total.added += r.added; total.updated += r.updated; total.skipped += r.skipped;
+    }
+    return total;
+  }
+
+  async function importFile(file) {
+    if (busy || !file) return;
+    if (file.size > 20 * 1024 * 1024) { setStatus('That file is over 20 MB — export just your contacts, not a full backup.', true); return; }
+    busy = true; $('ct-file-btn').disabled = true;
+    try {
+      const text = decode(await file.arrayBuffer());
+      const rows = /BEGIN:VCARD/i.test(text) ? parseVCard(text) : parseCSV(text);
+      if (!rows.length) { setStatus('No email addresses found in ' + esc(file.name) + '. Is it a CSV or vCard contacts export?', true); return; }
+      const r = await importRows(rows, file.name);
+      RecipAC.clearCache();
+      await refreshCounts('✓ ' + esc(file.name) + ': ' + esc(summary(r)));
+    } catch (e) {
+      setStatus('Import failed: ' + esc(e.message), true);
+    } finally {
+      busy = false; $('ct-file-btn').disabled = false; $('ct-file').value = '';
+    }
+  }
+
+  async function importOutlook(accountId) {
+    if (busy || !accountId) return;
+    busy = true; $('ct-outlook-btn').disabled = true;
+    setStatus('Reading your Outlook contacts…');
+    try {
+      const r = await fetch('/api/contacts/import/outlook', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ outlookAccountId: accountId }),
+      }).then(r => r.json());
+      if (r.needsConsent) {
+        setStatus('Opening Microsoft so you can allow access to your contacts…');
+        location.href = r.url;          // returns to /?outlookContacts=<id>, which resumes below
+        return;
+      }
+      if (r.error) throw new Error(r.error);
+      RecipAC.clearCache();
+      await refreshCounts(r.found ? '✓ Outlook: ' + esc(summary(r)) : 'Your Outlook address book is empty — nothing to import.');
+    } catch (e) {
+      setStatus('Outlook import failed: ' + esc(e.message), true);
+    } finally {
+      busy = false; $('ct-outlook-btn').disabled = false;
+    }
+  }
+
+  function fillOutlookAccounts() {
+    const ms = (S.accounts || []).filter(a => a.type === 'microsoft');
+    $('ct-outlook-row').style.display = ms.length ? '' : 'none';
+    const sel = $('ct-outlook-acct'), prev = sel.value;
+    sel.innerHTML = ms.map(a => '<option value="' + a.id + '">' + esc(a.email) + '</option>').join('');
+    if (prev && ms.some(a => String(a.id) === prev)) sel.value = prev;
+    sel.style.display = ms.length > 1 ? '' : 'none';
+  }
+
+  // ── Groups ──────────────────────────────────────────────────────────────────
+  const GRP_ICON = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 14c0-2.5 2-4.5 4.5-4.5s4.5 2 4.5 4.5"/><path d="M10.5 3.2a2.5 2.5 0 0 1 0 4.6M12 9.8c1.5.6 2.5 2.2 2.5 4.2"/></svg>';
+
+  function renderGroups() {
+    const el = $('ct-groups');
+    if (!groups.length) {
+      el.innerHTML = '<div class="ct-empty">No groups yet. A group lets you type one name — like “Site Engineers” — in To, Cc or Bcc and add everyone in it.</div>';
+      return;
+    }
+    el.innerHTML = groups.map(g => {
+      const names = g.members.map(m => m.name || m.email);
+      const preview = names.slice(0, 4).join(', ') + (names.length > 4 ? ' +' + (names.length - 4) + ' more' : '');
+      return '<div class="ct-grp">'
+        + '<div class="ct-grp-ico">' + GRP_ICON + '</div>'
+        + '<div class="ct-grp-txt"><div class="ct-grp-name">' + esc(g.name) + ' <span style="font-weight:400;color:var(--t3)">· ' + plural(g.members.length, 'person', 'people') + '</span></div>'
+        + '<div class="ct-grp-sub" title="' + esc(names.join(', ')) + '">' + (esc(preview) || 'No members') + '</div></div>'
+        + '<button class="st-ghost-btn" data-edit="' + g.id + '">Edit</button>'
+        + '<button class="st-danger-btn" data-del="' + g.id + '">Delete</button>'
+        + '</div>';
+    }).join('');
+  }
+
+  async function loadGroups() {
+    try {
+      const j = await fetch('/api/contact-groups').then(r => r.json());
+      groups = j.groups || [];
+      renderGroups();
+    } catch {}
+  }
+
+  function fmtAddr(name, email) {
+    const nm = name && /[",<>@]/.test(name) ? '"' + name.split('"').join("'") + '"' : name;
+    return nm ? nm + ' <' + email + '>' : email;
+  }
+
+  function openEditor(g) {
+    editingId = g ? g.id : null;
+    $('ct-grp-name').value = g ? g.name : '';
+    $('ct-grp-members').value = g && g.members.length ? g.members.map(m => fmtAddr(m.name, m.email)).join(', ') + ', ' : '';
+    $('ct-grp-err').textContent = '';
+    $('ct-editor').classList.remove('hidden');
+    (g ? $('ct-grp-members') : $('ct-grp-name')).focus();
+  }
+  function closeEditor() { editingId = null; $('ct-editor').classList.add('hidden'); RecipAC.close(); }
+
+  // "Name <a@b>" / "a@b" → { name, email }; anything else is reported back.
+  function parseMembers(text) {
+    const members = [], bad = [];
+    for (const part of splitAddrs(text)) {
+      const email = addrKey(part);
+      if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)) { bad.push(part); continue; }
+      const name = part.includes('<') ? part.slice(0, part.indexOf('<')).trim().replace(/^"|"$/g, '') : '';
+      members.push({ name, email });
+    }
+    return { members, bad };
+  }
+
+  async function saveGroup() {
+    const name = $('ct-grp-name').value.trim();
+    const { members, bad } = parseMembers($('ct-grp-members').value);
+    const err = $('ct-grp-err');
+    if (!name) { err.textContent = 'Give the group a name.'; $('ct-grp-name').focus(); return; }
+    if (bad.length) { err.textContent = 'Not an email address: ' + bad.slice(0, 3).join(', ') + (bad.length > 3 ? '…' : ''); return; }
+    if (!members.length) { err.textContent = 'Add at least one person.'; $('ct-grp-members').focus(); return; }
+    $('ct-grp-save').disabled = true;
+    try {
+      const r = await fetch(editingId ? '/api/contact-groups/' + editingId : '/api/contact-groups', {
+        method: editingId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, members }),
+      }).then(r => r.json());
+      if (r.error) { err.textContent = r.error; return; }
+      closeEditor();
+      RecipAC.clearCache();
+      await loadGroups();
+      showToast('✓ Group "' + r.group.name + '" saved — ' + plural(r.group.members.length, 'person', 'people'));
+    } catch (e) {
+      err.textContent = 'Couldn’t save: ' + e.message;
+    } finally {
+      $('ct-grp-save').disabled = false;
+    }
+  }
+
+  async function deleteGroup(id) {
+    const g = groups.find(x => x.id === id);
+    if (!g || !confirm('Delete the group "' + g.name + '"?\n\nThe people in it stay in your contacts.')) return;
+    try {
+      const r = await fetch('/api/contact-groups/' + id, { method: 'DELETE' }).then(r => r.json());
+      if (r.error) throw new Error(r.error);
+      if (editingId === id) closeEditor();
+      RecipAC.clearCache();
+      await loadGroups();
+      showToast('Group "' + g.name + '" deleted');
+    } catch (e) { showToast('Couldn’t delete: ' + e.message, false); }
+  }
+
+  // ── Wiring ──────────────────────────────────────────────────────────────────
+  $('ct-file-btn').onclick = () => $('ct-file').click();
+  $('ct-file').onchange = e => importFile(e.target.files[0]);
+  $('ct-outlook-btn').onclick = () => importOutlook($('ct-outlook-acct').value);
+  $('ct-new-grp').onclick = () => openEditor(null);
+  $('ct-grp-cancel').onclick = closeEditor;
+  $('ct-grp-save').onclick = saveGroup;
+  $('ct-grp-name').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('ct-grp-members').focus(); } });
+  $('ct-groups').addEventListener('click', e => {
+    const ed = e.target.closest('[data-edit]'), del = e.target.closest('[data-del]');
+    if (ed) openEditor(groups.find(g => g.id === +ed.dataset.edit));
+    if (del) deleteGroup(+del.dataset.del);
+  });
+  RecipAC.attach('ct-grp-members');
+
+  function onShow() { fillOutlookAccounts(); loadGroups(); if (!busy) refreshCounts(); }
+  document.querySelector('.settings-nav-item[data-sec="contacts"]').addEventListener('click', onShow);
+
+  // Back from Microsoft's one-time "allow contacts" screen: reopen here and finish.
+  function resumeAfterConsent() {
+    const params = new URLSearchParams(location.search);
+    const id = params.get('outlookContacts');
+    if (!id) return;
+    params.delete('outlookContacts');
+    history.replaceState(null, '', location.pathname + (params.toString() ? '?' + params : '') + location.hash);
+    const go = () => {
+      if (!(S.accounts || []).length) return setTimeout(go, 300);
+      $('settings-open-btn').click();
+      document.querySelector('.settings-nav-item[data-sec="contacts"]').click();
+      $('ct-outlook-acct').value = id;
+      importOutlook(id);
+    };
+    setTimeout(go, 300);
+  }
+  resumeAfterConsent();
+
+  return { parseCSV, parseVCard, decode };
+})();
 $('rb-ccbcc-toggle').onclick = () => {
   _rbCcbccOpen = !_rbCcbccOpen;
   $('rb-cc-row').classList.toggle('hidden', !_rbCcbccOpen);

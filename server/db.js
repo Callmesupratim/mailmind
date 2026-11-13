@@ -63,7 +63,30 @@ db.exec(`
   -- (account_id, email) primary-key index. This one makes email LIKE 'q%' a range scan.
   CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email);
   CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, applied_at INTEGER);
+  -- Contact groups: a named list of addresses that expands in To/CC/BCC.
+  -- Members are stored by address (not by contacts row) so a group survives
+  -- its people being removed from the learned address book.
+  CREATE TABLE IF NOT EXISTS contact_groups (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    created_at INTEGER,
+    updated_at INTEGER
+  );
+  CREATE TABLE IF NOT EXISTS contact_group_members (
+    group_id INTEGER NOT NULL,
+    email    TEXT    NOT NULL,              -- lowercased bare address
+    name     TEXT    NOT NULL DEFAULT '',
+    PRIMARY KEY (group_id, email)
+  );
 `);
+
+// saved = the person came from an imported address book (file or Outlook).
+// Imported rows live under IMPORTED_ACCOUNT_ID (0, never a real account id),
+// so removing a mailbox doesn't take the user's address book with it.
+const IMPORTED_ACCOUNT_ID = 0;
+if (!db.prepare("PRAGMA table_info(contacts)").all().some(c => c.name === "saved")) {
+  db.exec("ALTER TABLE contacts ADD COLUMN saved INTEGER NOT NULL DEFAULT 0");
+}
 
 // ── Encryption (AES-256-GCM) ───────────────────────────────────────────────────
 // Key derived from a secret in .env. Rotating that secret invalidates stored
@@ -205,9 +228,14 @@ const stmtContactBump = db.prepare(`
 // but blank on another, the plain form drops the blank-named row and silently loses
 // its sent/seen counts from the SUM. Selecting the whole group by email fixes that,
 // and keeps the idx_contacts_email range scan for the common email-prefix case.
+//
+// A saved (imported) contact ranks between "emailed" and "only heard from": it's
+// someone the user chose to keep, which beats a newsletter, but not someone they
+// actually write to. Its name wins over a learned one — the address book entry is
+// what the user typed, a From header is whatever the sender's client put there.
 const stmtContactSearch = db.prepare(`
   SELECT email,
-         MAX(name)       AS name,
+         COALESCE(MAX(CASE WHEN saved = 1 AND name <> '' THEN name END), MAX(name)) AS name,
          SUM(sent_count) AS sent_count,
          SUM(seen_count) AS seen_count,
          MAX(last_used)  AS last_used
@@ -218,11 +246,49 @@ const stmtContactSearch = db.prepare(`
                   WHERE name LIKE @pre ESCAPE '\\' OR name LIKE @word ESCAPE '\\')
   GROUP BY email
   ORDER BY SUM(sent_count) DESC,
+           MAX(saved)      DESC,
            SUM(seen_count) DESC,
            MAX(last_used)  DESC,
            email ASC
   LIMIT @limit
 `);
+
+const stmtContactImport = db.prepare(`
+  INSERT INTO contacts (account_id, email, name, sent_count, seen_count, last_used, saved)
+  VALUES (${IMPORTED_ACCOUNT_ID}, @email, @name, 0, 0, NULL, 1)
+  ON CONFLICT(account_id, email) DO UPDATE SET
+    name  = CASE WHEN @name <> '' THEN @name ELSE name END,
+    saved = 1
+`);
+const stmtContactImportedHas = db.prepare(`SELECT 1 FROM contacts WHERE account_id = ${IMPORTED_ACCOUNT_ID} AND email = ?`);
+const stmtContactCounts = db.prepare(`
+  SELECT (SELECT COUNT(DISTINCT email) FROM contacts)             AS total,
+         (SELECT COUNT(*) FROM contacts WHERE saved = 1)          AS saved
+`);
+
+// ── Contact group statements ──────────────────────────────────────────────────
+const stmtGroupList    = db.prepare("SELECT id, name FROM contact_groups ORDER BY name COLLATE NOCASE");
+const stmtGroupGet     = db.prepare("SELECT id, name FROM contact_groups WHERE id = ?");
+const stmtGroupByName  = db.prepare("SELECT id FROM contact_groups WHERE name = ?");
+const stmtGroupInsert  = db.prepare("INSERT INTO contact_groups (name, created_at, updated_at) VALUES (?, ?, ?)");
+const stmtGroupRename  = db.prepare("UPDATE contact_groups SET name = ?, updated_at = ? WHERE id = ?");
+const stmtGroupDelete  = db.prepare("DELETE FROM contact_groups WHERE id = ?");
+const stmtMembersList  = db.prepare("SELECT email, name FROM contact_group_members WHERE group_id = ? ORDER BY CASE WHEN name = '' THEN email ELSE name END COLLATE NOCASE");
+const stmtMembersClear = db.prepare("DELETE FROM contact_group_members WHERE group_id = ?");
+const stmtMemberAdd    = db.prepare("INSERT OR REPLACE INTO contact_group_members (group_id, email, name) VALUES (?, ?, ?)");
+// Same matching rules as people: name prefix, or the start of a later word.
+const stmtGroupSearch  = db.prepare(`
+  SELECT id, name FROM contact_groups
+  WHERE name LIKE @pre ESCAPE '\\' OR name LIKE @word ESCAPE '\\'
+  ORDER BY name COLLATE NOCASE LIMIT 5
+`);
+
+// Bare, lowercased address or null — the one shape every contacts table stores.
+function cleanEmail(e) {
+  const v = String(e || "").trim().toLowerCase();
+  return /^[^\s@<>",;]+@[^\s@<>",;]+\.[^\s@<>",;]+$/.test(v) && v.length <= 254 ? v : null;
+}
+function cleanName(n) { return String(n || "").replace(/\s+/g, " ").trim().slice(0, 120); }
 
 // Prune sender_seen rows older than 90 days so the table doesn't grow unbounded
 db.prepare("DELETE FROM sender_seen WHERE received_ts < ?").run(Date.now() - 90 * 24 * 60 * 60 * 1000);
@@ -390,6 +456,67 @@ module.exports = {
       seen:  r.seen_count,
       last:  r.last_used,
     }));
+  },
+
+  // Save address-book entries. Returns { added, updated, skipped }.
+  importContacts(list) {
+    const out = { added: 0, updated: 0, skipped: 0 };
+    const seen = new Set();
+    db.transaction(() => {
+      for (const c of list || []) {
+        const email = cleanEmail(c && c.email);
+        if (!email || seen.has(email)) { out.skipped++; continue; }
+        seen.add(email);
+        if (stmtContactImportedHas.get(email)) out.updated++; else out.added++;
+        stmtContactImport.run({ email, name: cleanName(c.name) });
+      }
+    })();
+    return out;
+  },
+  contactCounts() { return stmtContactCounts.get(); },
+
+  // ── Contact groups ───────────────────────────────────────────────────────────
+  listGroups() {
+    return stmtGroupList.all().map(g => ({ ...g, members: stmtMembersList.all(g.id) }));
+  },
+  getGroup(id) {
+    const g = stmtGroupGet.get(id);
+    return g ? { ...g, members: stmtMembersList.all(g.id) } : null;
+  },
+  // Create (id null) or replace a group's name and full member list.
+  // Throws { code: "duplicate" } when another group already has the name.
+  saveGroup(id, name, members) {
+    const nm = cleanName(name);
+    if (!nm) throw Object.assign(new Error("Group name is required"), { code: "invalid" });
+    const clash = stmtGroupByName.get(nm);
+    if (clash && clash.id !== id) throw Object.assign(new Error(`A group called "${nm}" already exists`), { code: "duplicate" });
+    const now = Date.now();
+    let gid = id;
+    db.transaction(() => {
+      if (gid == null) gid = Number(stmtGroupInsert.run(nm, now, now).lastInsertRowid);
+      else if (!stmtGroupGet.get(gid)) throw Object.assign(new Error("Group not found"), { code: "missing" });
+      else stmtGroupRename.run(nm, now, gid);
+      stmtMembersClear.run(gid);
+      const seen = new Set();
+      for (const m of members || []) {
+        const email = cleanEmail(m && m.email);
+        if (!email || seen.has(email)) continue;
+        seen.add(email);
+        stmtMemberAdd.run(gid, email, cleanName(m.name));
+      }
+    })();
+    return this.getGroup(gid);
+  },
+  deleteGroup(id) {
+    db.transaction(() => { stmtMembersClear.run(id); stmtGroupDelete.run(id); })();
+  },
+  searchGroups(q) {
+    const raw = String(q || "").trim().toLowerCase();
+    if (raw.length < 2) return [];
+    const e = raw.replace(/[\\%_]/g, (c) => "\\" + c);
+    return stmtGroupSearch.all({ pre: e + "%", word: "% " + e + "%" })
+      .map(g => ({ ...g, members: stmtMembersList.all(g.id) }))
+      .filter(g => g.members.length);
   },
 
   // ── Telemetry ──────────────────────────────────────────────────────────────────
