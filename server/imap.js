@@ -7,6 +7,7 @@ const nodemailer = require("nodemailer");
 const MailComposer = require("nodemailer/lib/mail-composer");
 
 const PAGE_SIZE = 25;
+const PREFETCH_MAX_BYTES = 2 * 1024 * 1024;   // larger messages load on click, not ahead of it
 
 // Nodemailer's own defaults are 2min connect / 10min idle socket — on a flaky
 // DNS/network path (e.g. a mail host that intermittently fails to resolve)
@@ -354,6 +355,12 @@ module.exports = {
     return withClient(creds, async (client) => {
       const lock = await client.getMailboxLock(folder);
       try {
+        // A speculative fetch of a big message (attachments) would hold this
+        // mailbox's one pooled connection while the user waits on a real click.
+        if (peek) {
+          const meta = await client.fetchOne(uid, { size: true }, { uid: true });
+          if (meta && meta.size > PREFETCH_MAX_BYTES) return { skipped: true };
+        }
         const msg = await client.fetchOne(uid, { source: true }, { uid: true });
         if (!msg) throw new Error("message not found");
         const p = await simpleParser(msg.source);

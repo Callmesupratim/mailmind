@@ -689,6 +689,11 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
 /* ── Inline el-head action buttons ── */
 .el-head-btn{height:20px;padding:0 9px;border-radius:99px;border:1px solid var(--bc);cursor:pointer;font-family:inherit;font-size:10.5px;font-weight:500;background:transparent;color:var(--t3);transition:all 100ms;white-space:nowrap}
 .el-head-btn:hover{color:var(--t1);border-color:var(--t3)}
+.el-refresh{margin-left:auto;width:26px;height:26px;border-radius:7px;border:1px solid transparent;background:transparent;color:var(--t3);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:color 100ms,background 100ms}
+.el-refresh:hover{color:var(--t1);background:var(--p2);border-color:var(--bc)}
+.el-refresh.spin{color:var(--accent);cursor:default}
+.el-refresh.spin svg{animation:el-spin .8s linear infinite}
+@keyframes el-spin{to{transform:rotate(360deg)}}
 .el-head-btn.danger{border-color:var(--hibrd);color:var(--hi)}
 .el-head-btn.danger:hover{background:var(--hibg)}
 </style>
@@ -852,6 +857,9 @@ body{font-family:var(--font-sans);background:var(--ab);color:var(--t1);height:10
       <div class="el-title">
         <span id="el-title">Inbox</span>
         <span class="el-cnt hidden" id="el-cnt"></span>
+        <button class="el-refresh" id="el-refresh" title="Refresh" aria-label="Refresh">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M14 2.5v3.2h-3.2"/></svg>
+        </button>
       </div>
       <div class="el-search">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="7" cy="7" r="5"/><path d="M11 11l3 3"/></svg>
@@ -2010,7 +2018,10 @@ function renderSidebar() {
 }
 
 async function switchAccount(id) {
-  await fetch(`/api/accounts/${id}/activate`, {method:'POST'}).catch(()=>{});
+  // Not awaited: every list/thread/action request now names its mailbox, so the
+  // saved list can paint without first waiting on this round-trip. The server's
+  // active mailbox still follows, for the poller and for the next app start.
+  const activating = fetch(`/api/accounts/${id}/activate`, {method:'POST'}).catch(()=>{});
   S.activeAcctId = id;
   applyAcctAccent(id);
   S.activeEmail = null;
@@ -2022,7 +2033,9 @@ async function switchAccount(id) {
   $('el-title').textContent = 'Inbox';
   renderSidebar();
   showEmpty();
-  loadEmails();
+  const loading = loadEmails();
+  await activating;
+  return loading;
 }
 
 // Folder nav
@@ -2440,7 +2453,8 @@ function threadCacheKey(e) {
 function threadUrl(e, peek) {
   const qp = new URLSearchParams();
   if (e._imapFolder) qp.set('folder', e._imapFolder);
-  if (e._accountId) qp.set('accountId', e._accountId);
+  const acct = e._accountId || S.activeAcctId;
+  if (acct) qp.set('accountId', acct);
   if (peek) qp.set('peek', '1');
   const qs = qp.toString();
   return '/api/emails/' + encodeURIComponent(e.conversationId || e.id) + (qs ? '?' + qs : '');
@@ -2455,12 +2469,22 @@ function threadCachePut(e, data) {
   _threadCache.set(key, { data, at: Date.now() });
   while (_threadCache.size > THREAD_CACHE_MAX) _threadCache.delete(_threadCache.keys().next().value);
 }
+// All prefetches share one AbortController so a mailbox/folder switch can drop
+// them at once (cancelPrefetch). A server "skipped" answer (an IMAP message too
+// big to fetch speculatively) is treated like a miss: the click loads it normally.
+let _prefetchCtl = new AbortController();
+function cancelPrefetch() {
+  _prefetchCtl.abort();
+  _prefetchCtl = new AbortController();
+  _prefetchGen++;
+  clearTimeout(_hoverPrefetchTimer);
+}
 function prefetchThread(e) {
   if (!e || threadCacheGet(e)) return Promise.resolve();
   const key = threadCacheKey(e);
   if (_threadInflight.has(key)) return _threadInflight.get(key);
-  const p = fetch(threadUrl(e, true)).then(r => r.json())
-    .then(data => { if (!data.error) threadCachePut(e, data); return data.error ? null : data; })
+  const p = fetch(threadUrl(e, true), { signal: _prefetchCtl.signal }).then(r => r.json())
+    .then(data => { const ok = !data.error && !data.skipped; if (ok) threadCachePut(e, data); return ok ? data : null; })
     .catch(() => null)
     .finally(() => _threadInflight.delete(key));
   _threadInflight.set(key, p);
@@ -2498,43 +2522,58 @@ function relevanceSort(a, b) {
 // silent=true → no spinner, preserves active selection (used by auto-refresh)
 // A non-silent load paints the saved list for this view first (if any), then
 // replaces it with the fresh one; a failed refresh keeps the saved list up.
+// manual=true (the Refresh button): keep the rows on screen, skip the saved-list
+// paint, take the server's list as the truth, and report failure in a toast.
 let _listGen = 0;
-async function loadEmails(append=false, silent=false, _retry=0) {
+let _listCtl = null;   // the in-flight list request; a newer view aborts it
+async function loadEmails(append=false, silent=false, _retry=0, { manual = false } = {}) {
   if (append && _loadingMore) return;   // prevent double-fire from IntersectionObserver
   const gen = append ? _listGen : ++_listGen;
   const cacheKey = append ? null : listCacheKey();
+  const acctId = S.activeAcctId;
   let fromCache = false;
   if (!append) {
     if (_scrollObserver) { _scrollObserver.disconnect(); _scrollObserver = null; }
-    // Keep the current rows during a silent refresh — the merge below needs them.
-    if (!silent) S.emails = [];
+    // A new view makes the old list request and any prefetches pointless — free
+    // their connections (the browser allows only 6 to the app) for this one.
+    if (_listCtl) _listCtl.abort();
+    cancelPrefetch();
+    // Keep the current rows during a silent or manual refresh — the merge below needs them.
+    if (!silent && !manual) S.emails = [];
     S.nextPageToken = null;
     // Always reset category filter to "Priority" on a fresh fetch
     S.category = 'priority';
     document.querySelectorAll('.cat-tab').forEach(b => b.classList.remove('on'));
     const allTab = document.querySelector('.cat-tab[data-cat="priority"]');
     if (allTab) allTab.classList.add('on');
-    const cached = !silent && listCacheGet(cacheKey);
+    const cached = !silent && !manual && listCacheGet(cacheKey);
     if (cached) {
       fromCache = true;
       S.emails = cached.emails.sort(relevanceSort);
       renderList();
       updateDigest();
-    } else if (!silent) {
+    } else if (!silent && !manual) {
       $('email-list').innerHTML = '<div class="el-loading"><div class="spinner"></div> Loading…</div>';
     }
   }
   if (append) _loadingMore = true;
   try {
     const p = new URLSearchParams({q: buildQ()});
+    // Name the mailbox explicitly rather than relying on the server's "active"
+    // account, which switchAccount updates in parallel with this request.
+    if (acctId) p.set('accountId', acctId);
     if (append && S.nextPageToken) p.set('pageToken', S.nextPageToken);
     const ctrl = new AbortController();
+    if (!append) _listCtl = ctrl;
     const tid = setTimeout(() => ctrl.abort(), 45000);
     const data = await fetch('/api/emails?' + p, { signal: ctrl.signal })
       .then(r => r.json()).finally(() => clearTimeout(tid));
     // The user moved to another mailbox/folder while this was in flight.
     if (gen !== _listGen) return;
     if (data.error) throw Object.assign(new Error(data.error), { rateLimited: !!data.rateLimited });
+    // Tag every row with its mailbox, so opening, prefetching and every action
+    // on it target that mailbox even after the user has switched away.
+    if (acctId) (data.emails || []).forEach(e => { if (!e._accountId) e._accountId = acctId; });
     if (append) {
       // Dedupe by thread id: messages.list pagination can split one thread across page
       // boundaries, so the same thread can arrive on two consecutive pages.
@@ -2594,11 +2633,11 @@ async function loadEmails(append=false, silent=false, _retry=0) {
   } catch(e) {
     if (gen !== _listGen) return;
     const msg = e.name === 'AbortError' ? 'Request timed out — check your connection and retry' : e.message;
-    if (fromCache) showToast('Couldn’t refresh — showing saved emails. ' + msg, false);
+    if (fromCache || manual) showToast('Couldn’t refresh — ' + (fromCache ? 'showing saved emails. ' : '') + msg, false);
     else if (!silent) $('email-list').innerHTML = `<div class="el-empty">⚠ ${esc(msg)}<br><button onclick="loadEmails()" style="margin-top:12px;padding:5px 14px;border-radius:6px;border:1px solid var(--bc);background:var(--p2);color:var(--t1);cursor:pointer;font-size:12px">Retry</button></div>`;
     // Network/abort errors during startup also warrant a silent retry — but not
     // a rate limit, where every retry spends more of the same quota.
-    if (!append && !silent && !fromCache && !e.rateLimited && _retry < 3) {
+    if (!append && !silent && !manual && !fromCache && !e.rateLimited && _retry < 3) {
       setTimeout(() => { if ((S.emails || []).length === 0) loadEmails(false, true, _retry + 1); }, 1200 * (_retry + 1));
     }
   } finally {
@@ -4749,6 +4788,24 @@ async function loadAllMail() {
 }
 $('all-mail-btn').onclick = loadAllMail;
 
+// ── Manual refresh ─────────────────────────────────────────────────────────────
+// Re-reads the current view from the server without blanking the list, and drops
+// this mailbox's opened-email copies so a re-opened email shows any change.
+$('el-refresh').onclick = async () => {
+  const btn = $('el-refresh');
+  if (btn.classList.contains('spin')) return;
+  btn.classList.add('spin');
+  try {
+    const allMail = S.folder === 'allmail';
+    for (const k of [..._threadCache.keys()])
+      if (allMail || k.startsWith(S.activeAcctId + '|')) _threadCache.delete(k);
+    if (allMail) await loadAllMail();
+    else await loadEmails(false, false, 0, { manual: true });
+  } finally {
+    btn.classList.remove('spin');
+  }
+};
+
 // ── Panel collapse toggles ────────────────────────────────────────────────────
 (function() {
   const sbEl  = document.querySelector('.sb');
@@ -6118,7 +6175,7 @@ async function pollForNewMail() {
     const q = buildQ() || 'in:inbox';
     const ctrl = new AbortController();
     const tid = setTimeout(() => ctrl.abort(), 30000);
-    const data = await fetch('/api/emails?q=' + encodeURIComponent(q) + '&maxResults=5', { signal: ctrl.signal })
+    const data = await fetch('/api/emails?q=' + encodeURIComponent(q) + '&maxResults=5' + (S.activeAcctId ? '&accountId=' + S.activeAcctId : ''), { signal: ctrl.signal })
       .then(r => r.json()).finally(() => clearTimeout(tid));
     if (data.error) return;
     const newest = data.emails?.[0];
