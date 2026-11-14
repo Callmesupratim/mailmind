@@ -195,7 +195,25 @@ function formatThreadContext(messages) {
 }
 
 // ── JSON analysis call — native JSON mode per provider ────────────────────────
-async function callAnalysis(threadContext, { provider, model, apiKey, tone }) {
+
+// Providers (esp. Gemini) briefly reject requests when overloaded ("high demand", 503,
+// 429 rate/overloaded). Retry those a couple of times with backoff before giving up.
+const AI_TRANSIENT = /high demand|overloaded|unavailable|try again later|503|529|rate.?limit|resource.?exhausted|temporarily/i;
+async function withAIRetry(fn) {
+  const waits = [1500, 4000];
+  for (let i = 0; ; i++) {
+    try { return await fn(); }
+    catch (e) {
+      if (i >= waits.length || !AI_TRANSIENT.test(e.message || "")) throw e;
+      console.warn("[ai] transient error, retrying in " + waits[i] + "ms: " + e.message);
+      await new Promise(r => setTimeout(r, waits[i]));
+    }
+  }
+}
+function callAIText(prompt, opts) { return withAIRetry(() => _callAITextOnce(prompt, opts)); }
+function callAnalysis(ctx, opts) { return withAIRetry(() => _callAnalysisOnce(ctx, opts)); }
+
+async function _callAnalysisOnce(threadContext, { provider, model, apiKey, tone }) {
   const p  = (provider || DEFAULT_PROVIDER).toLowerCase();
   const m  = resolveModel(p, model);
   const t  = tone || "professional";
@@ -627,7 +645,7 @@ async function callAI(prompt, { provider, model, apiKey } = {}) {
 }
 
 // Plain-text variant — uses STREAM_SYSTEM_PROMPT, no json_object response_format
-async function callAIText(prompt, { provider, model, apiKey } = {}) {
+async function _callAITextOnce(prompt, { provider, model, apiKey } = {}) {
   const p = (provider || DEFAULT_PROVIDER).toLowerCase();
   const m = resolveModel(p, model);
   const key = resolveKey(p, apiKey);
