@@ -628,7 +628,7 @@ app.whenReady().then(async () => {
     // A spawned server that dies before answering most likely lost its port to another
     // program in the moment after we checked it — respawn on a fresh port (twice at most).
     for (let attempt = 0; ; attempt++) {
-      try { await waitForPort(serverPort, 20000, serverProcess); break; }
+      try { await waitForPort(serverPort, 90000, serverProcess); break; }
       catch (e) {
         if (!needSpawn || attempt >= 2 || !/server exited/.test(e.message)) throw e;
         log('server on port ' + serverPort + ' failed (' + e.message + ') — retrying on another port');
@@ -645,7 +645,7 @@ app.whenReady().then(async () => {
       'Mailmind failed to start',
       (/server exited/.test(e.message)
         ? 'The Mailmind server stopped while starting up.\n\n'
-        : 'The server did not respond within 20 seconds.\n\n') +
+        : 'The server did not respond within 90 seconds. Antivirus scanning on first launch can slow this down — please open Mailmind again.\n\n') +
       'Debug log: ' + logFile
     );
     app.quit();

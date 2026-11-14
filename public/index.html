@@ -4337,13 +4337,15 @@ $('cm-ai').onclick = async () => {
   const btn = $('cm-ai');
   btn.disabled = true; btn.innerHTML = '<div class="spinner sm"></div> Generating…';
   try {
-    const instr = ($('cm-ai-instr-input').value || '').trim();
+    // Instruction box first; if empty, treat what's typed in the body as the instruction.
+    const bodyTxt = ($('cm-body').value || '').trim();
+    const instr = ($('cm-ai-instr-input').value || '').trim() || bodyTxt;
     const context = instr
       ? `Subject: ${$('cm-subject').value}\nTo: ${$('cm-to').value}\n\nInstruction: ${instr}`
       : `Subject: ${$('cm-subject').value}\nTo: ${$('cm-to').value}\n\nDraft a professional opening email based on the subject above.`;
-    const res = await postJSON('/api/analyze', { emailText: context, tone: S.tone, mode: 'reply' }, 60000);
+    const res = await postJSON('/api/analyze', aiPayload({ emailText: context, tone: S.tone, mode: 'reply' }), 60000);
     $('cm-body').value = res.reply || '';
-  } catch(e) { showToast('AI failed', false); }
+  } catch(e) { showToast('AI failed: ' + e.message, false); }
   finally { btn.disabled = false; btn.innerHTML = `${IC.spark} AI Draft`; }
 };
 
